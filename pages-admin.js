@@ -428,6 +428,14 @@ function drawSettings(){
     '<div class="d-flex justify-content-between py-1"><span>ปรับปรุงข้อมูลบุคลากรล่าสุด</span><span class="small-muted">' + esc(v('lastEmpSync') || '-') + '</span></div>' +
     '<div class="d-flex justify-content-between py-1"><span>ดึงข้อมูลสแกนล่าสุด</span><span class="small-muted">' + esc(v('lastScanSync') || '-') + '</span></div></div></div></div>';
   if (admin) {
+    var sv = v('scheduleView') === 'own' ? 'own' : 'all';
+    h += '<div class="col-12"><div class="card"><div class="card-h"><h3><i class="bi bi-eye text-danger"></i> การมองเห็นตารางเวร</h3><span class="sub">ใช้กับเมนู ลงตารางเวร และ ตารางเวรรวม (ทั้งมุมมองปฏิทิน/ตาราง และแบบ Google Sheet)</span></div><div class="card-b">' +
+      '<div class="row g-2 sv-opts">' +
+      [['all', 'globe2', 'เห็นทุกตาราง', 'ผู้ใช้ทุกคนดูตารางเวรของทุกตำแหน่งได้'], ['own', 'person-lock', 'เห็นเฉพาะตำแหน่งของตน', 'ผู้ใช้ทั่วไปเห็นเฉพาะตำแหน่งที่ขึ้นเวรได้ (ข้อมูลบุคลากร → ขึ้นเวรได้เฉพาะตำแหน่ง) และตำแหน่งที่ขึ้นเวร/ลงเวรใน 3 เดือนล่าสุด · ผู้บันทึกข้อมูล/ผู้ตรวจสอบเห็นตำแหน่งในกลุ่มที่ดูแลด้วย']].map(function(o){
+        return '<div class="col-md-6"><label class="sv-opt' + (sv === o[0] ? ' on' : '') + '"><input class="form-check-input" type="radio" name="svMode" value="' + o[0] + '"' + (sv === o[0] ? ' checked' : '') + '><i class="bi bi-' + o[1] + '"></i><span><b>' + o[2] + '</b><small>' + o[3] + '</small></span></label></div>';
+      }).join('') + '</div>' +
+      '<div class="small-muted mt-2"><i class="bi bi-info-circle"></i> ทั้งสองแบบ: สิทธิ์ลงเวร แก้ไขตาราง และอนุมัติ เป็นไปตามสิทธิ์เดิม (ผู้ใช้ทั่วไปดูตารางแบบ Google Sheet ได้อย่างเดียว) · เจ้าหน้าที่ประสานงาน ผู้จัดการคลินิก และผู้ดูแลระบบ เห็นทุกตารางเสมอ · ผู้ใช้เห็นผลเมื่อเข้าสู่ระบบครั้งถัดไปหรือรีเฟรชหน้า</div>' +
+      '<div class="mt-2"><button class="btn btn-brand" onclick="saveSchedView(this)"><i class="bi bi-save"></i> บันทึกการมองเห็น</button></div></div></div></div>';
     h += '<div class="col-12"><div class="card"><div class="card-h"><h3><i class="bi bi-cone-striped text-danger"></i> ข้อมูลทดลอง (ทดสอบขั้นตอนก่อนใช้งานจริง)</h3></div><div class="card-b">' +
       '<div class="small-muted mb-2">ตั้งเดือนใดเดือนหนึ่งเป็น "เดือนทดลอง" (แนะนำ กันยายน 2569 ซึ่งไฟล์ทดลองจัดทำไว้ให้ตรงกับวันในสัปดาห์และวันหยุดของเดือนนั้นแล้ว) แล้วนำเข้าไฟล์ demo_schedule.csv และ demo_records.csv เพื่อทดลองบันทึก ส่งตรวจสอบ อนุมัติ และพิมพ์เอกสารได้ทันที (ส่งตรวจสอบได้ทุกเวลา) เอกสารจะมีข้อความ "ข้อมูลทดลอง" กำกับ เมื่อทดสอบเสร็จกด "ล้างข้อมูลทดลอง"</div>' +
       '<div class="d-flex flex-wrap gap-2 align-items-end mb-2">' + ymSelect('dmYm', S.boot.ym, 3, 1, 'เดือนทดลอง') + '<button class="btn btn-soft" onclick="demoOn(this,true)"><i class="bi bi-toggle-on"></i> ตั้งเป็นเดือนทดลอง</button><button class="btn btn-ghost" onclick="demoOn(this,false)">ยกเลิกเดือนทดลอง</button></div>' +
@@ -454,9 +462,14 @@ function drawSettings(){
   }
   $('stBody').innerHTML = h + '</div>';
   enhanceSelects($('stBody'));
+  $$('input[name="svMode"]').forEach(function(r){ r.onchange = function(){ $$('.sv-opt').forEach(function(l){ l.classList.toggle('on', l.querySelector('input').checked); }); }; });
   if (admin) api('getArchiveList', {}).then(function(l){ $('arList').innerHTML = l.length ? l.map(function(a){ return '<span class="chip" style="font-size:13px;padding:3px 9px"><i class="bi bi-archive"></i> ' + esc(a.thMonth) + ' · ' + fmt(a.rows) + ' รายการ</span>'; }).join(' ') : '<span class="small-muted">ยังไม่มี</span>'; }).catch(function(){});
 }
 function saveSigners(b){ var o = {}; ['signer1Name', 'signer1Title', 'signer2Name', 'signer2Title'].forEach(function(k){ o[k] = $('sg_' + k).value; }); api('saveSigners', o, { btn: b }).then(function(s){ S._st = s; notify('บันทึกผู้ลงนามเรียบร้อย'); }).catch(function(){}); }
+function saveSchedView(b){
+  var r = $$('input[name="svMode"]').filter(function(x){ return x.checked; })[0]; if (!r) return;
+  api('saveScheduleView', { mode: r.value }, { btn: b }).then(function(x){ if (S._st) S._st.scheduleView = { value: x.mode }; S.boot.scheduleView = x.mode; notify(x.mode === 'own' ? 'ตั้งเป็น เห็นเฉพาะตำแหน่งของตน แล้ว' : 'ตั้งเป็น เห็นทุกตาราง แล้ว'); }).catch(function(){});
+}
 function saveSet(b){ var o = {}; $$('[data-set]').forEach(function(i){ o[i.dataset.set] = i.value; }); api('saveSettings', { values: o }, { btn: b }).then(function(s){ S._st = s; notify('บันทึกค่าระบบเรียบร้อย'); }).catch(function(){}); }
 function job(name, b){
   var ym = $('jbYm').value;

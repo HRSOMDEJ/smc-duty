@@ -199,11 +199,13 @@ function refreshPage(){ go(S.page); }
 /* ================= ลงตารางเวร ================= */
 function manageIds(){ return posIdsFor(['ENTRY', 'REVIEWER', 'COORD']); }
 PAGES.booking = function(){
-  var ids = S.boot.positions.map(function(p){ return p.id; });
-  var multi = manageIds().length > 1;
+  var ids = viewIds();
+  var multi = ids.length > 1;
+  // ผู้ใช้ทั่วไป: เปิดครั้งแรกที่ตำแหน่งที่ขึ้นเวรประจำ (ลงเวรได้ทันที)
+  if (!S.bkPid && !S.pid && !manageIds().length) S.bkPid = (S.boot.usualPositions || []).filter(function(id){ return ids.indexOf(id) >= 0; })[0] || ids[0];
   mount(pageHead('งานของฉัน', 'ลงตารางเวร', 'เลือกเดือนและตำแหน่ง แล้วกด "ลงเวร" ในช่วงเวรที่ต้องการ ระบบควบคุมกรอบอัตรากำลังและป้องกันการลงเวรซ้ำช่วงเวลาให้อัตโนมัติ') +
-    '<div class="filters">' + ymSelect('bkYm', S.bkYm || addYm(S.boot.ym, 1), 1, 2) + posSelect('bkPos', ids, S.bkPid || S.pid, multi, 'ทุกตาราง (ตำแหน่งที่ท่านดูแล)') +
-    (manageIds().length ? '<div><label class="form-label">มุมมอง</label><div class="seg" id="bkMode"><button data-v="cal"' + (S.bkMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-calendar3"></i> ปฏิทิน</button><button data-v="sheet"' + (S.bkMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' : '') +
+    '<div class="filters">' + ymSelect('bkYm', S.bkYm || addYm(S.boot.ym, 1), 1, 2) + posSelect('bkPos', ids, S.bkPid || S.pid, multi, manageIds().length ? 'ทุกตาราง' : 'ทุกตาราง (ดูอย่างเดียว)') +
+    '<div><label class="form-label">มุมมอง</label><div class="seg" id="bkMode"><button type="button" data-v="cal"' + (S.bkMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-calendar3"></i> ปฏิทิน</button><button type="button" data-v="sheet"' + (S.bkMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' +
     '<div class="ms-auto align-self-end"><button type="button" class="btn btn-sm btn-ghost" onclick="S.ym=$(\'bkYm\').value;go(\'overview\')" title="ดูตารางเวรเดือนก่อน ๆ ย้อนหลังได้ 3 ปี"><i class="bi bi-clock-history"></i> ดูตารางเวรย้อนหลัง</button></div>' +
     '</div><div id="bkState"></div><div id="bkBody">' + skeleton(8) + '</div>');
   $('bkYm').onchange = function(){ var el = this; gridGuard(function(){ S.bkYm = el.value; loadBoard(); }); };
@@ -214,8 +216,9 @@ PAGES.booking = function(){
 function loadBoard(){
   S.bkYm = $('bkYm').value; S.bkPid = $('bkPos').value;
   S.bkMode = S.bkMode || store('smc_bkMode') || 'cal';
-  if (S.bkMode === 'sheet' && manageIds().length) {
-    return api('getScheduleGrid', { ym: S.bkYm, positionId: S.bkPid, scope: 'manage' }).then(function(g){ $('bkBody').innerHTML = demoBanner(g.ym) + '<div id="bkGrid"></div>'; renderGrid('bkGrid', g, loadBoard); }).catch(function(){});
+  if (!S.bkPid) { $('bkBody').innerHTML = empty('calendar-x', 'ยังไม่มีตำแหน่งที่ท่านดูตารางเวรได้ โปรดติดต่อผู้ดูแลระบบ'); return; }
+  if (S.bkMode === 'sheet') {
+    return api('getScheduleGrid', { ym: S.bkYm, positionId: S.bkPid, scope: 'view' }).then(function(g){ $('bkBody').innerHTML = demoBanner(g.ym) + '<div id="bkGrid"></div>'; renderGrid('bkGrid', g, loadBoard); }).catch(function(){});
   }
   api('getBookingBoard', { ym: S.bkYm, positionId: S.bkPid }).then(function(b){ b.multi ? renderBoardAll(b) : renderBoard(b); }).catch(function(){});
 }
@@ -348,7 +351,7 @@ function renderBoardAll(b){
   S._boardAll = b;
   var D = S.boot.dayTypes;
   var pend = b.positions.filter(function(p){ return p.canApprove && p.pending; });
-  var h = demoBanner(b.ym) + windowBanner(b, true);
+  var h = demoBanner(b.ym) + windowBanner(b, b.positions.some(function(p){ return p.manage; }));
   h += '<div class="d-flex flex-wrap gap-2 align-items-center mb-3"><span class="small-muted">' + b.positions.length + ' ตาราง · รออนุมัติรวม ' + b.positions.reduce(function(a, p){ return a + p.pending; }, 0) + ' รายการ · * = รออนุมัติ</span>' +
     (pend.length ? '<button class="btn btn-sm btn-brand ms-auto" onclick="approveAll(this)"><i class="bi bi-check2-all"></i> อนุมัติตารางที่เลือก</button>' : '') + '</div>';
   // v1.3.1 ภาพรวมกรอบเวรทุกตำแหน่ง (แสดงทุกตาราง แม้ยังไม่มีผู้ลงเวร) กดชื่อตำแหน่งหรือช่องวันเพื่อเปิดตารางลงเวร
@@ -359,7 +362,7 @@ function renderBoardAll(b){
       '<span class="ms-auto d-flex gap-2"><span class="pill p-warn nodot">รออนุมัติ ' + p.pending + '</span><span class="pill p-ok nodot">อนุมัติแล้ว ' + p.approved + '</span></span></div>';
     h += schedMatrix(p, b.dates, p.people) + '</div>';
   });
-  if (!b.positions.length) h += empty('calendar-x', 'ท่านยังไม่ได้รับสิทธิ์ดูแลตารางเวรของตำแหน่งใด');
+  if (!b.positions.length) h += empty('calendar-x', 'ยังไม่มีตำแหน่งที่ท่านดูตารางเวรได้');
   else h += recLegend() + legendHtml();
   $('bkBody').innerHTML = h;
 }
@@ -400,7 +403,7 @@ function approveAll(btn){
 PAGES.overview = function(){
   S.ovMode = S.ovMode || store('smc_ovMode') || 'card';
   mount(pageHead('งานของฉัน', 'ตารางเวรรวม', 'ภาพรวมตารางเวรทุกตำแหน่งในเดือนที่เลือก พร้อมสถานะการบันทึกเวลาในแต่ละช่อง · สลับเป็น "แบบ Google Sheet" เพื่อแก้ไขตำแหน่งที่ท่านดูแล') + '<div class="filters">' + ymSelect('ovYm', S.ym, 36, 2, 'เดือน (ย้อนหลังได้ 3 ปี)') +
-    '<div><label class="form-label" for="ovPos">ตำแหน่ง</label><select class="form-select" data-search id="ovPos"><option value="all">ทุกตำแหน่ง</option>' + S.boot.positions.map(function(p){ return '<option value="' + p.id + '" data-sub="' + esc(p.groupName || '') + '"' + (S.ovPid === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
+    '<div><label class="form-label" for="ovPos">ตำแหน่ง</label><select class="form-select" data-search id="ovPos"><option value="all">' + (viewIds().length < S.boot.positions.length ? 'ทุกตำแหน่งที่ท่านเห็น' : 'ทุกตำแหน่ง') + '</option>' + S.boot.positions.filter(function(p){ return viewIds().indexOf(p.id) >= 0; }).map(function(p){ return '<option value="' + p.id + '" data-sub="' + esc(p.groupName || '') + '"' + (S.ovPid === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
     '<div><label class="form-label">มุมมอง</label><div class="seg" id="ovMode"><button type="button" data-v="card"' + (S.ovMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-view-stacked"></i> แยกตามตำแหน่ง</button><button type="button" data-v="sheet"' + (S.ovMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' +
     '<div id="ovQBox"><label class="form-label" for="ovQ">ค้นหาชื่อ / รหัส</label><input class="form-control" id="ovQ" placeholder="ชื่อ หรือรหัสเจ้าหน้าที่"></div></div><div id="ovBody">' + skeleton(6) + '</div>');
   $('ovYm').onchange = function(){ var el = this; gridGuard(function(){ S.ym = el.value; loadOv(); }); };

@@ -1,4 +1,4 @@
-var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-27.2', SMC_BUILD_TH = '27 ก.ย. 2569';
+var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-27.3', SMC_BUILD_TH = '27 ก.ย. 2569';
 /* BRAND (ชื่อระบบ โลโก้ สี ประกาศ): อ่านค่าที่แคชไว้ในเครื่องก่อน แล้วขอค่าล่าสุดจาก backend ตอนเริ่มแอป (ดู init ใน help.js) */
 var BRAND = (function(){ try { return JSON.parse(localStorage.getItem('smc_brand') || 'null'); } catch (e) { return null; } })();
 /* ================= แกนหลัก ================= */
@@ -444,7 +444,7 @@ var MENU = [
   { id: 'dashboard', icon: 'grid-1x2', text: 'ภาพรวมการดำเนินงาน', show: function(){ return !isStaffOnly(); } },
   { id: 'my', icon: 'person-badge', text: 'เวรและค่าตอบแทนของฉัน', show: function(){ return true; } },
   { id: 'booking', icon: 'calendar2-plus', text: 'ลงตารางเวร', show: function(){ return true; } },
-  { id: 'overview', icon: 'table', text: 'ตารางเวรรวม', show: function(){ return !isStaffOnly(); } },
+  { id: 'overview', icon: 'table', text: 'ตารางเวรรวม', show: function(){ return true; } },
   { sec: 'งานประจำเดือน' },
   { id: 'entry', icon: 'ui-checks-grid', text: 'บันทึกเวลาปฏิบัติงาน', show: function(){ return has('ENTRY') || has('COORD'); } },
   { id: 'followup', icon: 'clipboard2-pulse', text: 'รายงานติดตามปัญหา', show: function(){ return has('ENTRY') || has('REVIEWER') || has('MANAGER') || has('COORD'); } },
@@ -526,6 +526,8 @@ function posSelect(id, ids, val, withAll, allText){
   var opts = (withAll ? '<option value="all">' + (allText || 'ทุกตำแหน่ง') + '</option>' : '') + list.map(function(p){ return '<option value="' + p.id + '" data-sub="' + esc(p.groupName) + '"' + (p.id === val ? ' selected' : '') + '>' + esc(p.name) + (usual.indexOf(p.id) >= 0 && usual.indexOf(p.id) < 3 ? ' ★' : '') + '</option>'; }).join('');
   return '<div><label class="form-label" for="' + id + '">ตำแหน่ง</label><select class="form-select" data-search id="' + id + '">' + opts + '</select></div>';
 }
+/** v1.2569.3 ตำแหน่งที่ผู้ใช้มองเห็นตารางเวรได้ (ตามการตั้งค่า การมองเห็นตารางเวร) */
+function viewIds(){ return S.boot.viewPositions || S.boot.positions.map(function(p){ return p.id; }); }
 function posIdsFor(roles){
   var set = {};
   roles.forEach(function(r){ (S.boot.myPositions[r] || []).forEach(function(id){ set[id] = 1; }); });
