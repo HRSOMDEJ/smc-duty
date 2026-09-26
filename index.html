@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="smc-version" content="1.3.1">
   <meta name="theme-color" content="#b81e2f">
   <title>SMC Duty · ระบบบันทึกและตรวจสอบการลงเวลาปฏิบัติงาน</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -10,60 +11,70 @@
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="style.css?v=1.3.1">
   <style id="printPage">@page{size:A4 landscape;margin:10mm}</style>
 </head>
 <body>
 <div id="progress"></div>
 
-<!-- เข้าสู่ระบบ -->
-<div id="vLogin" class="auth" hidden>
-  <section class="auth-art" aria-hidden="true">
-    <div class="auth-mesh"></div>
-    <div class="auth-top">
-      <div class="logo-xl brand-logo"></div>
-      <div class="auth-brand"><b class="brand-short"></b><span>คลินิกพิเศษเฉพาะทางนอกเวลา</span></div>
-    </div>
-    <div class="auth-hero">
-      <div class="auth-kicker">SMC Duty Scheduling &amp; Attendance</div>
-      <h1>ระบบบันทึกและตรวจสอบ<br>การลงเวลาปฏิบัติงาน</h1>
-      <ul class="auth-feats">
-        <li><i class="bi bi-calendar2-check"></i><span>ลงตารางเวรล่วงหน้า ควบคุมกรอบอัตรากำลังอัตโนมัติ</span></li>
-        <li><i class="bi bi-fingerprint"></i><span>ตรวจกับเวลาสแกนลายนิ้วมือจากระบบของโรงพยาบาล</span></li>
-        <li><i class="bi bi-file-earmark-check"></i><span>ส่งตรวจ อนุมัติ และจัดทำตารางเวร ตาราง OT ไฟล์ HRMi</span></li>
-      </ul>
-    </div>
-    <div class="auth-org brand-org"></div>
-  </section>
-  <section class="auth-form">
-    <div class="auth-card">
-      <div id="annLogin"></div>
-      <form id="fLogin" autocomplete="on">
-        <div class="auth-card-logo"><div class="logo-lg brand-logo"></div><div><b class="brand-short"></b><small>คลินิกพิเศษเฉพาะทางนอกเวลา</small></div></div>
-        <h2 class="auth-title">เข้าสู่ระบบ</h2>
-        <p class="auth-sub">ใช้รหัสเจ้าหน้าที่และรหัสผ่านของท่าน</p>
-        <div class="mb-3"><label class="form-label" for="lgCode">รหัสเจ้าหน้าที่</label>
-          <div class="field"><i class="bi bi-person-badge"></i><input class="form-control form-control-lg" id="lgCode" inputmode="numeric" autocomplete="username" placeholder="55XXXXX" required></div></div>
-        <div class="mb-4"><label class="form-label" for="lgPw">รหัสผ่าน</label>
-          <div class="field"><i class="bi bi-lock"></i><input class="form-control form-control-lg" id="lgPw" type="password" autocomplete="current-password" required>
-          <button class="field-btn" type="button" onclick="var i=$('lgPw');i.type=i.type==='password'?'text':'password';this.firstChild.className='bi bi-'+(i.type==='password'?'eye':'eye-slash')" aria-label="แสดงรหัสผ่าน"><i class="bi bi-eye"></i></button></div></div>
-        <button class="btn btn-brand btn-lg w-100" type="submit" id="lgBtn">เข้าสู่ระบบ <i class="bi bi-arrow-right"></i></button>
-        <div class="auth-help">
-          <span><i class="bi bi-info-circle"></i> ครั้งแรก ใช้รหัสผ่านเดียวกับรหัสเจ้าหน้าที่</span>
-          <a href="#" onclick="forgotPw();return false"><i class="bi bi-question-circle"></i> ลืมรหัสผ่าน</a>
+<!-- เข้าสู่ระบบ (v1.3.1 ออกแบบใหม่) -->
+<div id="vLogin" class="lgn" hidden>
+  <div class="lg-bg" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i><div class="lg-grid"></div></div>
+  <div class="lg-wrap">
+    <div class="lg-card">
+      <section class="lg-art" aria-hidden="true">
+        <div class="lg-aurora"></div>
+        <div class="lg-ring"></div>
+        <div class="lg-brand"><div class="lg-logo brand-logo"></div><div><b class="brand-short"></b><span>คลินิกพิเศษเฉพาะทางนอกเวลา</span></div></div>
+        <div class="lg-hero">
+          <div class="lg-kicker"><span class="dot"></span> Scheduling &amp; Attendance</div>
+          <h1>ระบบบันทึกและตรวจสอบ<br><em>การลงเวลาปฏิบัติงาน</em></h1>
+          <ul class="lg-feats">
+            <li style="--i:0"><i class="bi bi-calendar2-check"></i><span>ลงตารางเวรล่วงหน้า ควบคุมกรอบอัตรากำลังอัตโนมัติ</span></li>
+            <li style="--i:1"><i class="bi bi-fingerprint"></i><span>ตรวจกับเวลาสแกนลายนิ้วมือของโรงพยาบาล</span></li>
+            <li style="--i:2"><i class="bi bi-patch-check"></i><span>ส่งตรวจ อนุมัติ และออกเอกสาร/ไฟล์ HRMi</span></li>
+          </ul>
         </div>
-        <div class="conn" id="connState"></div>
-      </form>
-      <footer class="login-foot" id="footLogin"></footer>
+        <div class="lg-clock"><b id="lgTime"></b><span id="lgDate"></span></div>
+      </section>
+      <section class="lg-form">
+        <div id="annLogin"></div>
+        <form id="fLogin" autocomplete="on" novalidate>
+          <div class="lg-mlogo"><div class="lg-logo brand-logo"></div><div><b class="brand-short"></b><small>คลินิกพิเศษเฉพาะทางนอกเวลา</small></div></div>
+          <h2 class="lg-title">เข้าสู่ระบบ</h2>
+          <p class="lg-sub">ใช้รหัสเจ้าหน้าที่และรหัสผ่านของท่าน</p>
+          <div class="fl">
+            <i class="bi bi-person-badge fl-ic"></i>
+            <input class="fl-in" id="lgCode" inputmode="numeric" autocomplete="username" placeholder=" " required>
+            <label for="lgCode">รหัสเจ้าหน้าที่</label>
+          </div>
+          <div class="fl">
+            <i class="bi bi-shield-lock fl-ic"></i>
+            <input class="fl-in" id="lgPw" type="password" autocomplete="current-password" placeholder=" " required>
+            <label for="lgPw">รหัสผ่าน</label>
+            <button class="fl-eye" type="button" id="lgEye" aria-label="แสดงรหัสผ่าน" title="แสดง/ซ่อนรหัสผ่าน"><i class="bi bi-eye"></i></button>
+          </div>
+          <div class="lg-caps" id="lgCaps" hidden><i class="bi bi-capslock-fill"></i> เปิดแป้นพิมพ์ตัวใหญ่ (Caps Lock) อยู่</div>
+          <div class="lg-row">
+            <label class="lg-remember"><input type="checkbox" id="lgRemember"><span class="sw"></span> จำรหัสเจ้าหน้าที่</label>
+            <a href="#" onclick="forgotPw();return false">ลืมรหัสผ่าน?</a>
+          </div>
+          <button class="lg-btn" type="submit" id="lgBtn"><span>เข้าสู่ระบบ</span><i class="bi bi-arrow-right"></i></button>
+          <div class="lg-hint"><i class="bi bi-info-circle"></i> เข้าใช้ครั้งแรก ใช้รหัสผ่านเดียวกับรหัสเจ้าหน้าที่</div>
+          <div class="conn" id="connState"><span class="wait"><i></i> กำลังตรวจการเชื่อมต่อระบบ…</span></div>
+        </form>
+      </section>
     </div>
-  </section>
+    <footer class="login-foot" id="footLogin"></footer>
+  </div>
 </div>
 
 <!-- ตั้งค่าบัญชีก่อนใช้งาน -->
-<div id="vForce" class="auth auth-single" hidden>
-  <section class="auth-form">
-    <div class="auth-card card card-b" style="max-width:480px;padding:28px">
-      <div class="auth-card-logo mb-3"><div class="logo-lg brand-logo"></div><div><b class="brand-short"></b><small>ตั้งค่าบัญชีก่อนเริ่มใช้งาน</small></div></div>
+<div id="vForce" class="lgn lg-single" hidden>
+  <div class="lg-bg" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i><div class="lg-grid"></div></div>
+  <section class="lg-wrap">
+    <div class="lg-card lg-card-s">
+      <div class="lg-mlogo d-flex mb-3"><div class="lg-logo brand-logo"></div><div><b class="brand-short"></b><small>ตั้งค่าบัญชีก่อนเริ่มใช้งาน</small></div></div>
       <div class="small-muted mb-3" id="fcWho"></div>
       <form id="fPw" hidden>
         <div class="fw-semibold mb-2"><span class="step-n">1</span> กำหนดรหัสผ่านใหม่</div>
@@ -99,7 +110,6 @@
       <div class="top-title"><span class="d-lg-none brand-short"></span><b id="topTitle"></b></div>
       <div class="ms-auto d-flex gap-2 align-items-center">
         <span class="small-muted d-none d-md-inline" id="syncInfo"></span>
-        <button class="btn btn-ghost btn-sm" onclick="openHelp()" title="คำแนะนำการใช้งานหน้านี้"><i class="bi bi-question-circle"></i><span class="d-none d-sm-inline">คำแนะนำการใช้งาน</span></button>
       </div>
     </header>
     <div id="annApp"></div>
@@ -130,11 +140,11 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5/dist/sweetalert2.all.min.js"></script>
-<script src="js/config.js"></script>
-<script src="js/javascript.js"></script>
-<script src="js/components.js"></script>
-<script src="js/pages.js"></script>
-<script src="js/pages-admin.js"></script>
-<script src="js/help.js"></script>
+<script src="config.js?v=1.3.1"></script>
+<script src="javascript.js?v=1.3.1"></script>
+<script src="components.js?v=1.3.1"></script>
+<script src="pages.js?v=1.3.1"></script>
+<script src="pages-admin.js?v=1.3.1"></script>
+<script src="help.js?v=1.3.1"></script>
 </body>
 </html>

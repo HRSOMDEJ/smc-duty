@@ -350,8 +350,8 @@ function renderBoardAll(b){
   var h = demoBanner(b.ym) + windowBanner(b, true);
   h += '<div class="d-flex flex-wrap gap-2 align-items-center mb-3"><span class="small-muted">' + b.positions.length + ' ตาราง · รออนุมัติรวม ' + b.positions.reduce(function(a, p){ return a + p.pending; }, 0) + ' รายการ · * = รออนุมัติ</span>' +
     (pend.length ? '<button class="btn btn-sm btn-brand ms-auto" onclick="approveAll(this)"><i class="bi bi-check2-all"></i> อนุมัติตารางที่เลือก</button>' : '') + '</div>';
-  var emptyPos = b.positions.filter(function(p){ return !p.people.length; });
-  if (emptyPos.length) h += '<div class="small-muted mb-3"><i class="bi bi-inbox"></i> ยังไม่มีผู้ลงเวร ' + emptyPos.length + ' ตาราง: ' + emptyPos.map(function(p){ return '<a href="#" class="me-2" onclick="setSel(\'bkPos\',\'' + p.id + '\');$(\'bkPos\').dispatchEvent(new Event(\'change\'));return false">' + esc(p.name) + '</a>'; }).join('') + '</div>';
+  // v1.3.1 ภาพรวมกรอบเวรทุกตำแหน่ง (แสดงทุกตาราง แม้ยังไม่มีผู้ลงเวร) กดชื่อตำแหน่งหรือช่องวันเพื่อเปิดตารางลงเวร
+  if (b.positions.length) h += heatmapHtml(b);
   b.positions.filter(function(p){ return p.people.length; }).forEach(function(p){
     h += '<div class="card mb-3"><div class="card-h">' + (p.canApprove && p.pending ? '<input class="form-check-input ba-sel" type="checkbox" data-id="' + p.id + '" checked aria-label="เลือกอนุมัติ ' + esc(p.name) + '">' : '') +
       '<h3><a href="#" onclick="setSel(\'bkPos\',\'' + p.id + '\');$(\'bkPos\').dispatchEvent(new Event(\'change\'));return false">' + esc(p.name) + '</a></h3><span class="sub">' + esc(p.groupName) + '</span>' +
@@ -364,6 +364,29 @@ function renderBoardAll(b){
   if (!b.positions.length) h += empty('calendar-x', 'ท่านยังไม่ได้รับสิทธิ์ดูแลตารางเวรของตำแหน่งใด');
   else h += legendHtml();
   $('bkBody').innerHTML = h;
+}
+function openBkPos(pid){ setSel('bkPos', pid); $('bkPos').dispatchEvent(new Event('change')); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function heatmapHtml(b){
+  var tot = { q: 0, n: 0 };
+  var rows = b.positions.map(function(p){
+    var pq = 0, pn = 0;
+    var cells = b.dates.map(function(dd){
+      var f = p.fill && p.fill[dd.d];
+      if (!f) return '<td class="hm-x ' + dk(dd.color) + '" title="ไม่เปิดให้ลงเวร">·</td>';
+      var q = f[0] * f[1].length, n = f[1].reduce(function(a, x){ return a + x[1]; }, 0);
+      pq += q; pn += n;
+      var r = q ? n / q : (n ? 1 : 0), cls = !q ? 'hm-0' : n === 0 ? 'hm-e' : r < .5 ? 'hm-l' : r < 1 ? 'hm-m' : r === 1 ? 'hm-f' : 'hm-o';
+      var tip = TH_DF[dd.dow] + ' ' + thDate(dd.date) + '\n' + f[1].map(function(x){ return slotL(x[0]).name + ' ' + x[1] + '/' + f[0]; }).join('\n');
+      return '<td class="hm ' + cls + '" title="' + esc(tip) + '" onclick="openBkPos(\'' + p.id + '\')"><span>' + n + '<small>/' + q + '</small></span></td>';
+    }).join('');
+    tot.q += pq; tot.n += pn;
+    var pct = pq ? Math.round(pn / pq * 100) : 0;
+    return '<tr><td class="nm"><a href="#" onclick="openBkPos(\'' + p.id + '\');return false">' + esc(p.name) + '</a><div class="hm-bar"><i style="width:' + Math.min(100, pct) + '%"></i></div></td><td class="hm-pct">' + pct + '%</td>' + cells + '</tr>';
+  }).join('');
+  return '<div class="card mb-3 hm-card"><div class="card-h"><h3><i class="bi bi-grid-3x3-gap"></i> ภาพรวมกรอบเวรทุกตำแหน่ง</h3><span class="sub">ลงแล้ว / กรอบ ของแต่ละวัน · กดที่ชื่อตำแหน่งหรือช่องวันเพื่อเปิดตารางลงเวร</span>' +
+    '<span class="ms-auto d-flex flex-wrap gap-2 small-muted align-items-center"><span class="hm-lg hm-e"></span>ยังไม่มีผู้ลง <span class="hm-lg hm-l"></span>ไม่ถึงครึ่ง <span class="hm-lg hm-m"></span>เกินครึ่ง <span class="hm-lg hm-f"></span>เต็มกรอบ <span class="hm-lg hm-o"></span>เกินกรอบ · รวม ' + fmt(tot.n) + '/' + fmt(tot.q) + '</span></div>' +
+    '<div class="tbl border-0 shadow-none hm-wrap"><table class="table table-bordered matrix hm-t"><thead><tr><th class="nm">ตำแหน่ง</th><th>ลงแล้ว</th>' +
+    b.dates.map(function(x){ return '<th class="' + dk(x.color) + '">' + x.d + '<br>' + TH_D[x.dow] + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
 }
 function approveAll(btn){
   var ids = $$('.ba-sel').filter(function(c){ return c.checked; }).map(function(c){ return c.dataset.id; });
@@ -807,6 +830,34 @@ function sheetCount(pid){
   S.enOrder.forEach(function(k){ var r = S.enRows[k]; if (r.pid === pid && +r.sheetNo > n) n = +r.sheetNo; });
   return Math.max(n, S['enSheetMax_' + pid] || 0);
 }
+/* v1.3.1 "ดูเป็นใบ": เรียงเป็นหน้ากระดาษ ตำแหน่ง → ใบที่ → วันที่ เหมือนใบลงชื่อจริง พลิกดูทีละใบ (ปุ่ม ◀ ▶ หรือแป้นลูกศร) */
+function pvPages(){
+  var d = S._en, out = [];
+  d.positionIds.forEach(function(pid){
+    var has = S.enOrder.some(function(k){ return S.enRows[k].pid === pid; });
+    if (!has && !(enEditable(pid) && !d.multi) && pid !== S.enSheetPid) return;
+    for (var k = 1; k <= sheetCount(pid); k++) out.push({ pid: pid, k: k });
+  });
+  if (!out.length && d.positionIds.length) out.push({ pid: d.positionIds[0], k: 1 });
+  return out;
+}
+function pvGo(step){
+  var pg = pvPages(), i = pg.findIndex(function(x){ return x.pid === S.enSheetPid && x.k === S.enSheetNo; });
+  var j = Math.max(0, Math.min(pg.length - 1, i + step)); if (j === i) return;
+  S.enSheetPid = pg[j].pid; S.enSheetNo = pg[j].k; S.pvDir = step > 0 ? 'next' : 'prev'; renderEntry(); window.scrollTo({ top: $('enBody').offsetTop - 80, behavior: 'smooth' });
+}
+function pvJump(v){ var p = v.split('|'); S.pvDir = ''; S.enSheetPid = p[0]; S.enSheetNo = +p[1]; renderEntry(); }
+document.addEventListener('keydown', function(e){
+  if (S.page !== 'entry' || S.enView !== 'sheet' || !S._en) return;
+  var t = e.target, tag = t && t.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable) || document.querySelector('.modal.show,.swal2-container')) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); pvGo(1); } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); pvGo(-1); }
+});
+function paperHead(pid, k, nSheet){
+  var d = S._en, P = enPos(pid), ym = d.ym.split('-');
+  return '<div class="paper-top"><span class="paper-form">FM-HRM-031</span><span class="paper-no">ใบที่ <b>' + k + '</b>' + (nSheet ? ' / ' + nSheet : '') + '</span></div>' +
+    '<div class="paper-t">แบบบันทึกเวลาการปฏิบัติงาน (' + esc(P.clinicName || 'คลินิกพิเศษเฉพาะทางนอกเวลา') + ')</div>' +
+    '<div class="paper-s">ประจำเดือน ' + TH_MF[+ym[1] - 1] + ' ปี พ.ศ. ' + (+ym[0] + 543) + ' &nbsp;·&nbsp; ตำแหน่ง <b>' + esc(P.name) + '</b> &nbsp;·&nbsp; ใบที่ ' + k + '</div>';
+}
 function renderSheetView(first){
   var d = S._en, y = window.scrollY;
   if ($('enSortBox')) $('enSortBox').hidden = true;
@@ -818,13 +869,18 @@ function renderSheetView(first){
   var pid = S.enSheetPid, nSheet = sheetCount(pid);
   if (!S.enSheetNo || S.enSheetNo > nSheet) S.enSheetNo = 1;
   var k0 = S.enSheetNo, ed = enEditable(pid);
-  var h = '';
-  var withRows = d.positionIds.filter(function(x){ return x === pid || S.enOrder.some(function(k){ return S.enRows[k].pid === x; }); });
-  if (d.multi) h += '<div class="chips-tabs mb-2" role="tablist">' + withRows.map(function(x){ var n = S.enOrder.filter(function(k){ return S.enRows[k].pid === x; }).length; return '<button type="button" class="ctab' + (x === pid ? ' on' : '') + '" onclick="S.enSheetPid=\'' + x + '\';S.enSheetNo=1;renderEntry()">' + esc(enPos(x).name) + ' <span class="n">' + n + '</span></button>'; }).join('') + '</div>';
-  h += '<div class="paper"><div class="paper-h"><div><div class="paper-t">แบบบันทึกเวลาการปฏิบัติงาน (' + esc(enPos(pid).clinicName || 'คลินิกพิเศษเฉพาะทางนอกเวลา') + ')</div><div class="paper-s">ประจำเดือน ' + esc(d.thMonth) + ' · ตำแหน่ง ' + esc(enPos(pid).name) + ' · ' + statusPill(d.statuses[pid]) + '</div></div>' +
-    '<div class="sheet-tabs">' + Array.apply(null, Array(nSheet)).map(function(_, i){ return '<button type="button" class="' + (i + 1 === k0 ? 'on' : '') + '" onclick="S.enSheetNo=' + (i + 1) + ';renderEntry()">ใบที่ ' + (i + 1) + '</button>'; }).join('') +
-    (ed ? '<button type="button" class="add" title="เพิ่มใบใหม่" onclick="S[\'enSheetMax_' + pid + '\']=' + (nSheet + 1) + ';S.enSheetNo=' + (nSheet + 1) + ';renderEntry()"><i class="bi bi-plus-lg"></i></button>' : '') + '</div></div>';
-  h += '<div class="tbl paper-tbl"><table class="table sheet-t"><thead><tr><th style="width:34px"></th><th style="width:92px">วันที่</th><th style="width:86px">รหัส</th><th>ชื่อ-นามสกุล</th><th>เวลาเข้างาน</th><th>เวลาออกงาน</th><th>เวลาสแกนของวัน</th><th>ผลคำนวณ / ตรวจสแกน</th><th title="ไม่เบิกค่า OT">ไม่เบิก OT</th><th></th></tr></thead><tbody>';
+  var pg = pvPages(), idx = pg.findIndex(function(x){ return x.pid === pid && x.k === k0; });
+  var h = '<div class="pv-bar">' +
+    '<button class="pv-nav" onclick="pvGo(-1)"' + (idx <= 0 ? ' disabled' : '') + ' title="ใบก่อนหน้า (←)"><i class="bi bi-chevron-left"></i></button>' +
+    '<div class="pv-where"><div class="pv-pos">' + esc(enPos(pid).name) + ' ' + statusPill(d.statuses[pid]) + '</div><div class="pv-sub">ใบที่ <b>' + k0 + '</b> จาก ' + nSheet + ' ใบ · หน้า ' + (idx + 1) + ' จาก ' + pg.length + (d.multi ? ' (ทุกตำแหน่ง)' : '') + '</div>' +
+    '<div class="pv-dots">' + pg.map(function(x, i){ return '<i class="' + (i === idx ? 'on' : '') + (x.k === 1 && i ? ' gap' : '') + '" title="' + esc(enPos(x.pid).name + ' ใบที่ ' + x.k) + '" onclick="pvJump(\'' + x.pid + '|' + x.k + '\')"></i>'; }).join('') + '</div></div>' +
+    '<select class="form-select form-select-sm pv-jump" onchange="pvJump(this.value)" aria-label="ไปที่ใบ">' + pg.map(function(x){ return '<option value="' + x.pid + '|' + x.k + '"' + (x.pid === pid && x.k === k0 ? ' selected' : '') + '>' + esc(enPos(x.pid).name) + ' · ใบที่ ' + x.k + '</option>'; }).join('') + '</select>' +
+    '<div class="pv-tools"><button class="btn btn-sm btn-ghost" onclick="printPaper(false)" title="พิมพ์ใบที่แสดง"><i class="bi bi-printer"></i> ใบนี้</button><button class="btn btn-sm btn-ghost" onclick="printPaper(true)" title="พิมพ์ทุกใบของตำแหน่งนี้"><i class="bi bi-files"></i> ทุกใบของตำแหน่ง</button>' +
+    (ed ? '<button class="btn btn-sm btn-soft" title="เพิ่มใบใหม่" onclick="S[\'enSheetMax_' + pid + '\']=' + (nSheet + 1) + ';S.enSheetNo=' + (nSheet + 1) + ';S.pvDir=\'next\';renderEntry()"><i class="bi bi-plus-lg"></i> เพิ่มใบ</button>' : '') + '</div>' +
+    '<button class="pv-nav" onclick="pvGo(1)"' + (idx >= pg.length - 1 ? ' disabled' : '') + ' title="ใบถัดไป (→)"><i class="bi bi-chevron-right"></i></button></div>';
+  h += '<div class="paper-stage"><div class="paper ' + (S.pvDir ? 'flip-' + S.pvDir : '') + '">' + paperHead(pid, k0, nSheet) +
+    '<div class="sheet-tabs">' + Array.apply(null, Array(nSheet)).map(function(_, i){ return '<button type="button" class="' + (i + 1 === k0 ? 'on' : '') + '" onclick="S.pvDir=\'' + (i + 1 > k0 ? 'next' : 'prev') + '\';S.enSheetNo=' + (i + 1) + ';renderEntry()">ใบที่ ' + (i + 1) + '</button>'; }).join('') + '</div>';
+  h += '<div class="tbl paper-tbl"><table class="table sheet-t"><thead><tr><th style="width:34px"></th><th style="width:96px">วัน / วันที่</th><th style="width:86px">รหัส</th><th>ชื่อ-นามสกุล</th><th>เวลาเข้างาน</th><th>เวลาออกงาน</th><th>เวลาสแกนของวัน</th><th>ผลคำนวณ / ตรวจสแกน</th><th title="ไม่เบิกค่า OT">ไม่เบิก OT</th><th></th></tr></thead><tbody>';
   var vis = visibleKeys(), f = S.enFilter || 'all';
   d.days.forEach(function(x){
     var keys = vis.filter(function(k){ var r = S.enRows[k]; return r.pid === pid && r.date === x.date && +r.sheetNo === k0; });
@@ -833,11 +889,28 @@ function renderSheetView(first){
       h += '<tr class="sheet-empty ' + dk(x.color) + '"><td></td><td class="text-nowrap"><b>' + TH_D[x.dow] + '</b> ' + thDate(x.date) + '</td><td colspan="8">' + (x.dayType === S.boot.dayTypes.CLOSED ? '<span class="small-muted">— ปิดคลินิก —</span>' : (ed ? '<button class="btn btn-sm btn-link py-0 text-decoration-none" onclick="addRow(\'' + x.date + '\',{pid:\'' + pid + '\',sheetNo:' + k0 + '})"><i class="bi bi-plus-circle"></i> เพิ่มผู้ปฏิบัติงานในใบที่ ' + k0 + '</button>' : '')) + (x.note ? ' <span class="small-muted">' + esc(x.note) + '</span>' : '') + '</td></tr>';
     }
   });
-  h += '</tbody></table></div><div class="paper-f"><span>' + legendHtml(enPos(pid)).replace('class="legend"', 'class="legend m-0"') + '</span></div></div>';
+  h += '</tbody></table></div><div class="paper-sign"><div><span>ผู้ตรวจสอบการลงเวลาปฏิบัติงาน</span><i></i></div><div><span>ข้าพเจ้าขอรับรองว่าผู้มีรายนามข้างต้นได้มาปฏิบัติงานจริง</span><i></i></div></div>' +
+    '<div class="paper-f"><span>' + legendHtml(enPos(pid)).replace('class="legend"', 'class="legend m-0"') + '</span><span class="small-muted"><i class="bi bi-keyboard"></i> ใช้แป้น ← → พลิกใบ</span></div></div></div>';
+  S.pvDir = '';
   $('enBody').innerHTML = h;
   bindEntry($('enBody'));
   enBar();
   if (!first) window.scrollTo({ top: y, behavior: 'instant' });
+}
+/** พิมพ์ใบที่แสดง / ทุกใบของตำแหน่ง (A4 แนวตั้ง จากข้อมูลในระบบ ใช้ตรวจทานกับใบจริง) */
+function printPaper(all){
+  var d = S._en, pid = S.enSheetPid, n = sheetCount(pid), list = all ? Array.apply(null, Array(n)).map(function(_, i){ return i + 1; }) : [S.enSheetNo], cnt = 0;
+  var body = list.map(function(k, i){
+    var rows = '';
+    d.days.forEach(function(x){
+      var keys = S.enOrder.filter(function(kk){ var r = S.enRows[kk]; return r.pid === pid && r.date === x.date && +r.sheetNo === k; });
+      if (!keys.length) { rows += '<tr class="' + dk(x.color) + '"><td>' + TH_D[x.dow] + '</td><td>' + thDate(x.date) + '</td><td></td><td>' + (x.dayType === S.boot.dayTypes.CLOSED ? '— ปิดคลินิก —' : '') + '</td><td></td><td></td><td></td><td></td></tr>'; return; }
+      keys.forEach(function(kk){ var r = S.enRows[kk]; cnt++; var rec = r.rec || {};
+        rows += '<tr class="' + dk(x.color) + '"><td>' + TH_D[x.dow] + '</td><td>' + thDate(x.date) + '</td><td>' + esc(r.empCode) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.tin || '') + '</td><td>' + esc(r.tout || '') + '</td><td>' + (rec.otHours ? fmt(rec.otHours, 1) : '') + '</td><td>' + esc(rec.scanStatus || (r.rec ? '' : 'ยังไม่บันทึก')) + '</td></tr>'; });
+    });
+    return '<div class="pr-paper' + (i ? ' pb' : '') + '">' + paperHead(pid, k, n) + '<table class="pr-table"><thead><tr><th style="width:34px">วัน</th><th style="width:72px">วันที่</th><th style="width:70px">รหัส</th><th>ชื่อ-นามสกุล</th><th style="width:60px">เข้า</th><th style="width:60px">ออก</th><th style="width:40px">OT</th><th style="width:110px">ตรวจสแกน</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }).join('');
+  printReport({ title: 'สำเนาตรวจทานใบลงชื่อ (ข้อมูลในระบบ) · ' + enPos(pid).name, subtitle: d.thMonth + ' · ' + (all ? 'ทุกใบ (' + n + ' ใบ)' : 'ใบที่ ' + S.enSheetNo), filters: '', bodyHtml: body, count: cnt, portrait: true, kind: 'paper' }).catch(function(){});
 }
 function sheetRowHtml(r, x, k0){
   x = x || dayOf(r.date) || {};
@@ -954,6 +1027,12 @@ function drawSubmit(){
     '<div class="kpis">' + kpi('hourglass-split', 'ic-info', 'ตำแหน่งรอส่งตรวจสอบ', nTodo) + kpi('check2-circle', 'ic-ok', 'พร้อมส่ง (ไม่มีรายการต้องแก้ไข)', ready) +
     kpi('exclamation-octagon', 'ic-bad', 'รายการต้องแก้ไขก่อนส่ง', d.positions.reduce(function(a, p){ return a + (todoSt.indexOf(p.status) >= 0 ? p.blocking : 0); }, 0)) +
     kpi('person-dash', 'ic-warn', 'มีเวรแต่ไม่มีบันทึกเวลา', d.positions.reduce(function(a, p){ return a + (todoSt.indexOf(p.status) >= 0 ? p.missing : 0); }, 0)) + '</div>';
+  // v1.3.1 ปุ่มส่งทุกตำแหน่งที่พร้อมในครั้งเดียว
+  var readyIds = d.positions.filter(function(p){ return todoSt.indexOf(p.status) >= 0 && p.records && !p.blocking; }).map(function(p){ return p.positionId; });
+  var notReady = nTodo - readyIds.length;
+  if (nTodo) h += '<div class="cta' + (readyIds.length ? '' : ' cta-off') + '"><div class="cta-ic"><i class="bi bi-send-check"></i></div><div class="flex-grow-1"><b>' + (readyIds.length ? 'ส่งตรวจสอบทุกตำแหน่งที่พร้อมได้ในครั้งเดียว' : 'ยังไม่มีตำแหน่งที่พร้อมส่ง') + '</b><div class="small-muted">พร้อมส่ง ' + readyIds.length + ' ตำแหน่ง' + (notReady ? ' · ยังมีรายการต้องแก้ไข ' + notReady + ' ตำแหน่ง (แก้ไขแล้วค่อยส่ง)' : '') + '</div></div>' +
+    '<button class="btn btn-ghost" onclick="$$(\'.sb-sel\').forEach(function(c){c.checked=true});$(\'sbAll\').checked=true;sbBar()"><i class="bi bi-check2-square"></i> เลือกทั้งหมด</button>' +
+    (readyIds.length ? '<button class="btn btn-brand" onclick="doSubmit(' + JSON.stringify(readyIds).replace(/"/g, '&quot;') + ')"><i class="bi bi-send"></i> ส่งตรวจสอบทั้งหมด (' + readyIds.length + ')</button>' : '') + '</div>';
   h += '<div class="tbl"><table class="table table-hover"><thead><tr><th style="width:36px"><input class="form-check-input" type="checkbox" id="sbAll" aria-label="เลือกทั้งหมด"></th><th>ตำแหน่ง</th><th>สถานะ</th><th class="num">บันทึก</th><th class="num">ต้องแก้ไข</th><th class="num">ข้อสังเกต</th><th class="num">ไม่มีบันทึก</th><th class="num">รอสแกน</th><th class="num">ค่าตอบแทน</th><th></th></tr></thead><tbody>';
   list.forEach(function(p){
     var can = todoSt.indexOf(p.status) >= 0 && p.records;
@@ -1009,6 +1088,7 @@ function drawApproval(){
   if (S.rvSt === 'OPEN') list = d.positions.filter(function(p){ return p.status === 'OPEN' && (p.records || p.missing) && (!q || p.name.toLowerCase().indexOf(q) >= 0) && (!fix || p.blocking); });
   var t = { rec: 0, blk: 0, fl: 0, amt: 0 }; list.forEach(function(p){ t.rec += p.records; t.blk += p.blocking; t.fl += p.flagged; t.amt += p.amount; });
   var h = demoBanner(d.ym) + '<div class="kpis">' + kpi('journal-check', 'ic-info', 'รายการ (ตำแหน่งที่แสดง)', t.rec) + kpi('exclamation-octagon', t.blk ? 'ic-bad' : 'ic-ok', 'ต้องแก้ไข', t.blk) + kpi('flag', t.fl ? 'ic-warn' : 'ic-ok', 'มีข้อสังเกต', t.fl) + kpi('cash-coin', 'ic-brand', 'ค่าตอบแทน (บาท)', t.amt, 2) + '</div>';
+  h += apCta(list);
   h += '<div class="tbl"><table class="table table-hover"><thead><tr><th style="width:36px"><input class="form-check-input" type="checkbox" id="apAll" aria-label="เลือกทั้งหมด"></th><th>ตำแหน่ง</th><th>สถานะ</th><th class="num">คน</th><th class="num">รายการ</th><th class="num">ต้องแก้ไข</th><th class="num">ข้อสังเกต</th><th class="num">ไม่มีบันทึก</th><th class="num">เวร / OT</th><th class="num">ค่าตอบแทน</th><th></th></tr></thead><tbody>';
   list.forEach(function(p){
     var st = p.status === 'SUBMITTED' ? 'ส่งเมื่อ ' + p.submittedAt : p.status === 'REVIEWED' ? 'ตรวจแล้ว ' + p.reviewedAt : p.status === 'APPROVED' ? 'อนุมัติ ' + p.approvedAt : '';
@@ -1027,6 +1107,29 @@ function drawApproval(){
   $('apAll').onchange = function(){ var on = this.checked; $$('.ap-sel').forEach(function(c){ c.checked = on; }); apBar(); };
   $$('.ap-sel').forEach(function(c){ c.onchange = apBar; });
   apBar();
+}
+/** v1.3.1 ปุ่มดำเนินการทั้งหมดในแท็บที่เลือก (ไม่ต้องทำทีละตำแหน่ง) */
+function apCta(list){
+  var st = S.rvSt, ids, txt, fn, ic, cls = 'btn-brand';
+  var entryIds = posIdsFor(['ENTRY']);
+  if (st === 'SUBMITTED' && S._ap.canReviewAny) { ids = list.filter(function(p){ return p.canReview; }); txt = 'ผ่านการตรวจสอบทั้งหมด'; fn = 'apAllDo(\'review\')'; ic = 'check2-circle'; cls = 'btn-ok'; }
+  else if (st === 'REVIEWED' && S._ap.canApprove) { ids = list; txt = 'อนุมัติทั้งหมด'; fn = 'apAllDo(\'approve\')'; ic = 'lock'; }
+  else if ((st === 'OPEN' || st === 'RETURNED') && entryIds.length) { ids = list.filter(function(p){ return entryIds.indexOf(p.positionId) >= 0 && p.records && !p.blocking; }); txt = 'ส่งตรวจสอบทั้งหมดที่พร้อม'; fn = 'apAllDo(\'submit\')'; ic = 'send'; }
+  if (!ids) return '';
+  S._apAll = ids.map(function(p){ return p.positionId; });
+  var blk = list.filter(function(p){ return p.blocking; }).length;
+  return '<div class="cta' + (ids.length ? '' : ' cta-off') + '"><div class="cta-ic"><i class="bi bi-' + ic + '"></i></div><div class="flex-grow-1"><b>' + txt + '</b><div class="small-muted">' + ids.length + ' ตำแหน่งในแท็บนี้' + (blk ? ' · มีรายการต้องแก้ไข ' + blk + ' ตำแหน่ง (กดตัวเลขสีแดงเพื่อดู)' : '') + '</div></div>' +
+    '<button class="btn btn-ghost" onclick="$$(\'.ap-sel\').forEach(function(c){c.checked=true});$(\'apAll\').checked=true;apBar()"><i class="bi bi-check2-square"></i> เลือกทั้งหมด</button>' +
+    (ids.length ? '<button class="btn ' + cls + '" onclick="' + fn + '"><i class="bi bi-' + ic + '"></i> ' + txt + ' (' + ids.length + ')</button>' : '') + '</div>';
+}
+function apAllDo(kind){
+  var ids = S._apAll || []; if (!ids.length) return;
+  $$('.ap-sel').forEach(function(c){ c.checked = ids.indexOf(c.dataset.id) >= 0; });
+  if (kind === 'review') return apReview();
+  if (kind === 'approve') return apApprove();
+  confirmBox('ส่งตรวจสอบ ' + ids.length + ' ตำแหน่ง', 'ระบบจะดึงข้อมูลสแกนล่าสุดและตรวจทุกรายการก่อนส่ง ตำแหน่งที่ยังมีรายการต้องแก้ไขจะไม่ถูกส่ง', 'ส่งตรวจสอบ').then(function(ok){
+    if (ok) api('submitMonths', { ym: S.ym, positionIds: ids }, { block: 'กำลังดึงข้อมูลสแกนและตรวจรายการ…' }).then(function(r){ actionBar(''); resultBox('ผลการส่งตรวจสอบ', r.results); loadApproval(); }).catch(function(){});
+  });
 }
 function apSelected(){ return $$('.ap-sel').filter(function(c){ return c.checked; }).map(function(c){ return c.dataset.id; }); }
 function apBar(){

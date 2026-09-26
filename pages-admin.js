@@ -25,6 +25,10 @@ function renderCal(d){
     '<input class="form-control mb-2" id="imUrl" placeholder="วางลิงก์ไฟล์ Google Sheet ตารางเวร">' +
     '<button class="btn btn-soft" onclick="importSched(this)">นำเข้าเป็นตารางเวรเดือน ' + esc(d.thMonth) + '</button>' +
     '<div class="small-muted mt-2">รายการเดิมของตำแหน่งที่อยู่ในไฟล์จะถูกแทนที่ · ช→ช1, บ→บ1 · อักษรต่อท้าย (V/S, En) เก็บเป็นหมายเหตุ</div></div></div></div></div>';
+  // v1.3.1 กำหนดกรอบเวรรายตำแหน่งทั้งเดือน (ไม่ต้องแก้ทีละวัน) — ยังแก้รายวันได้ในตารางด้านล่างเหมือนเดิม
+  S.caMode = S.caMode || 'pos';
+  h += '<div class="d-flex flex-wrap gap-2 align-items-center mb-2"><div class="seg" id="caMode"><button type="button" data-v="pos"' + (S.caMode === 'pos' ? ' class="on"' : '') + '><i class="bi bi-person-lines-fill"></i> กำหนดรายตำแหน่ง (ทั้งเดือน)</button><button type="button" data-v="day"' + (S.caMode === 'day' ? ' class="on"' : '') + '><i class="bi bi-calendar3"></i> กำหนดรายวัน / ประเภทวัน</button></div></div>';
+  h += '<div id="caPosBox"' + (S.caMode === 'pos' ? '' : ' hidden') + '>' + caPosHtml(d) + '</div><div id="caDayBox"' + (S.caMode === 'day' ? '' : ' hidden') + '>';
   h += '<div class="d-flex flex-wrap gap-3 align-items-center mb-2">' + dayLegend() + '<span class="small-muted">เลือกประเภทวันแล้วกด "บันทึกปฏิทิน" · วันหยุดชดเชยคำนวณเหมือนวันหยุด แต่แสดงสีต่างกัน</span></div>';
   h += '<div class="card"><div class="card-h"><h3>วันและกรอบเวร</h3><span class="sub">จำนวนบุคลากรสูงสุดต่อช่วงเวรของแต่ละตำแหน่ง (ค่าตั้งต้นตามประกาศ)</span><div class="ms-auto d-flex gap-2"><input class="form-control form-control-sm" id="caQ" placeholder="กรองตำแหน่ง" style="width:160px"><button class="btn btn-sm btn-ghost" onclick="saveCal(this)"><i class="bi bi-calendar-check"></i> บันทึกปฏิทิน</button><button class="btn btn-sm btn-brand" onclick="saveQuota(this)"><i class="bi bi-save"></i> บันทึกกรอบเวร</button></div></div>' +
     '<div class="tbl border-0 shadow-none" style="max-height:65vh;border-radius:0 0 16px 16px"><table class="table"><thead><tr><th class="sticky-l">วันที่</th><th>ประเภทวัน</th><th>หมายเหตุ</th>' +
@@ -36,13 +40,47 @@ function renderCal(d){
       '<td><input class="form-control form-control-sm" data-cn="' + x.date + '" value="' + esc(x.note) + '" placeholder="เช่น วันปิยมหาราช" style="min-width:150px"></td>' +
       d.positions.map(function(p){ return '<td class="qcol" data-pn="' + esc(p.name.toLowerCase()) + '"><input class="form-control form-control-sm text-center tnum" data-q="' + x.date + '|' + p.id + '" value="' + x.quotas[p.id] + '" style="width:58px"></td>'; }).join('') + '</tr>';
   });
-  $('caBody').innerHTML = h + '</tbody></table></div></div><div class="small-muted mt-2">กรอบตั้งต้นของแต่ละตำแหน่งแก้ไขได้ที่หน้า "ตำแหน่งและอัตราค่าตอบแทน" · กรอบในตารางนี้ใช้เฉพาะวันนั้น</div>';
+  $('caBody').innerHTML = h + '</tbody></table></div></div><div class="small-muted mt-2">กรอบตั้งต้นของแต่ละตำแหน่งแก้ไขได้ที่หน้า "ตำแหน่งและอัตราค่าตอบแทน" · กรอบในตารางนี้ใช้เฉพาะวันนั้น</div></div>';
+  $$('#caMode button').forEach(function(b){ b.onclick = function(){ $$('#caMode button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); S.caMode = b.dataset.v; $('caPosBox').hidden = S.caMode !== 'pos'; $('caDayBox').hidden = S.caMode !== 'day'; }; });
+  $$('.cp-in').forEach(function(i){ i.oninput = function(){ i.closest('tr').classList.toggle('cp-dirty', $$('input', i.closest('tr')).some(function(x){ return x.value !== x.dataset.o; })); cpCount(); }; });
+  if ($('cpQ')) $('cpQ').oninput = function(){ var q = this.value.trim().toLowerCase(); $$('#cpTbl tbody tr').forEach(function(tr){ tr.hidden = q && tr.dataset.pn.indexOf(q) < 0; }); };
   $$('.day-type-sel').forEach(function(sel){ sel.onchange = function(){
     var tr = sel.closest('tr'), v = sel.value, dw = +sel.dataset.dow, C = S.boot.dayTypes;
     var k = v === C.CLOSED ? 'CLOSED' : v === (S.boot.dayTypeComp || 'วันหยุดชดเชย') ? 'COMP' : v === C.HOLIDAY ? ((dw === 0 || dw === 6) && !tr.querySelector('[data-cn]').value ? 'WEEKEND' : 'PUBHOL') : 'WORK';
     tr.className = 'cal-row ' + dk(k); tr.firstChild.className = 'text-nowrap fw-semibold sticky-l ' + dk(k);
   }; });
   $('caQ').oninput = function(){ var q = this.value.trim().toLowerCase(); $$('.qcol').forEach(function(c){ c.style.display = !q || c.dataset.pn.indexOf(q) >= 0 ? '' : 'none'; }); };
+}
+/** กลุ่มวัน: วันทำการ / วันหยุด (เสาร์-อาทิตย์ นักขัตฤกษ์ ชดเชย) · วันปิดคลินิกไม่นับ */
+function caKind(x){ var C = S.boot.dayTypes; var t = x.dayType; return t === C.CLOSED ? '' : t === C.WORKDAY ? 'W' : 'H'; }
+function caMode2(arr){ var c = {}, best = '', n = -1; arr.forEach(function(v){ c[v] = (c[v] || 0) + 1; }); Object.keys(c).forEach(function(k){ if (c[k] > n) { n = c[k]; best = k; } }); return { v: best, mixed: Object.keys(c).length > 1 }; }
+function caPosHtml(d){
+  var nW = d.days.filter(function(x){ return caKind(x) === 'W'; }).length, nH = d.days.filter(function(x){ return caKind(x) === 'H'; }).length;
+  var rows = d.positions.map(function(p){
+    var w = caMode2(d.days.filter(function(x){ return caKind(x) === 'W'; }).map(function(x){ return String(x.quotas[p.id]); }));
+    var hh = caMode2(d.days.filter(function(x){ return caKind(x) === 'H'; }).map(function(x){ return String(x.quotas[p.id]); }));
+    return '<tr data-pid="' + p.id + '" data-pn="' + esc(p.name.toLowerCase()) + '"><td><b>' + esc(p.name) + '</b><div class="small-muted">' + esc(p.groupName || '') + ' · ตั้งต้น ' + p.defaultQuota + '</div></td>' +
+      '<td><input class="form-control form-control-sm text-center tnum cp-in" type="number" min="0" max="99" data-k="W" data-o="' + esc(w.v) + '" value="' + esc(w.v) + '"></td><td class="small-muted">' + (w.mixed ? '<span class="pill p-warn nodot">บางวันต่างกัน</span>' : '') + '</td>' +
+      '<td><input class="form-control form-control-sm text-center tnum cp-in" type="number" min="0" max="99" data-k="H" data-o="' + esc(hh.v) + '" value="' + esc(hh.v) + '"></td><td class="small-muted">' + (hh.mixed ? '<span class="pill p-warn nodot">บางวันต่างกัน</span>' : '') + '</td></tr>';
+  }).join('');
+  return '<div class="card mb-3"><div class="card-h"><h3><i class="bi bi-sliders"></i> กรอบเวรรายตำแหน่ง · ' + esc(d.thMonth) + '</h3><span class="sub">ใส่ตัวเลขครั้งเดียว ระบบนำไปใช้ทุกวันของเดือนตามประเภทวัน (วันทำการ ' + nW + ' วัน · วันหยุด ' + nH + ' วัน · ข้ามวันปิดคลินิก)</span>' +
+    '<div class="ms-auto d-flex gap-2 align-items-center"><input class="form-control form-control-sm" id="cpQ" placeholder="กรองตำแหน่ง" style="width:160px"><button class="btn btn-sm btn-brand" id="cpSave" onclick="saveQuotaPos(this)"><i class="bi bi-magic"></i> นำไปใช้ทั้งเดือน</button></div></div>' +
+    '<div class="tbl border-0 shadow-none" style="max-height:62vh;border-radius:0 0 16px 16px"><table class="table align-middle" id="cpTbl"><thead><tr><th>ตำแหน่ง</th><th class="text-center" style="width:120px">วันทำการ<br><small class="fw-normal">(จ.–ศ.)</small></th><th style="width:110px"></th><th class="text-center" style="width:120px">วันหยุด<br><small class="fw-normal">(ส.–อา. นักขัตฤกษ์ ชดเชย)</small></th><th style="width:110px"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div class="card-b pt-2 small-muted"><i class="bi bi-info-circle"></i> แถวที่แก้ไขจะมีแถบสีด้านซ้าย · กด "นำไปใช้ทั้งเดือน" แล้วระบบจะตั้งกรอบให้ทุกวันของตำแหน่งนั้นตามประเภทวัน · ต้องการปรับเฉพาะบางวัน ให้ไปที่ "กำหนดรายวัน" <span id="cpCnt"></span></div></div>';
+}
+function cpCount(){ var n = $$('#cpTbl tr.cp-dirty').length; if ($('cpCnt')) $('cpCnt').innerHTML = n ? ' · <b class="text-danger">แก้ไขแล้ว ' + n + ' ตำแหน่ง</b>' : ''; }
+function saveQuotaPos(b){
+  var d = S._ca, entries = [], names = [];
+  $$('#cpTbl tr.cp-dirty').forEach(function(tr){
+    var pid = tr.dataset.pid, v = {}; $$('.cp-in', tr).forEach(function(i){ v[i.dataset.k] = i.value; });
+    names.push(posName(pid));
+    d.days.forEach(function(x){ var k = caKind(x); if (!k || v[k] === '' || v[k] === undefined) return; if (String(x.quotas[pid]) !== String(+v[k])) entries.push({ date: x.date, positionId: pid, quota: +v[k] }); });
+  });
+  if (!names.length) return notify('ยังไม่ได้แก้ไขตัวเลขของตำแหน่งใด', 'info');
+  if (!entries.length) return notify('กรอบเวรตรงกับค่าเดิมอยู่แล้ว', 'info');
+  confirmBox('นำกรอบเวรไปใช้ทั้งเดือน', names.length + ' ตำแหน่ง: ' + names.slice(0, 6).join(', ') + (names.length > 6 ? ' ฯลฯ' : '') + '\nเดือน ' + d.thMonth + ' · ปรับทั้งหมด ' + entries.length + ' ช่อง (วัน×ตำแหน่ง)', 'นำไปใช้').then(function(ok){
+    if (ok) api('saveQuotas', { ym: S.caYm, entries: entries, mode: 'กำหนดรายตำแหน่งทั้งเดือน ' + names.length + ' ตำแหน่ง' }, { btn: b }).then(function(r){ notify('ตั้งกรอบเวรทั้งเดือนเรียบร้อย ' + names.length + ' ตำแหน่ง'); renderCal(r); }).catch(function(){});
+  });
 }
 function saveBw(b){ api('saveBookingWindow', { ym: S.caYm, openFrom: $('bwFrom').value, openTo: $('bwTo').value }, { btn: b }).then(function(){ notify('บันทึกช่วงเวลาลงตารางเวรเรียบร้อย'); }).catch(function(){}); }
 function saveSw(b){
@@ -137,10 +175,11 @@ PAGES.employees = function(){
   h += '<div class="filters"><div><label class="form-label" for="emQ">ค้นหา</label><input class="form-control" id="emQ" placeholder="รหัส ชื่อ หรือตำแหน่ง"></div>' +
     '<div><label class="form-label" for="emUnit">หน่วยงาน</label><select class="form-select" data-search id="emUnit"><option value="">ทุกหน่วยงาน</option></select></div>' +
     '<div><label class="form-label" for="emDiv">ฝ่าย</label><select class="form-select" data-search id="emDiv"><option value="">ทุกฝ่าย</option></select></div>' +
+    '<div><label class="form-label" for="emSort">เรียงตาม</label><select class="form-select" id="emSort"><option value="div">ฝ่าย แล้วรหัสเจ้าหน้าที่</option><option value="unit">หน่วยงาน แล้วรหัสเจ้าหน้าที่</option><option value="code">รหัสเจ้าหน้าที่</option><option value="name">ชื่อ</option></select></div>' +
     '<div><label class="form-label" for="emSt">สถานะ</label><select class="form-select" id="emSt"><option value="">ทั้งหมด</option><option value="ACTIVE" selected>ปฏิบัติงาน</option><option value="INACTIVE">พ้นสภาพ</option></select></div>' +
     '<div class="ms-auto small-muted align-self-end" id="emCnt"></div></div><div id="emBody">' + skeleton(10) + '</div>';
   mount(h);
-  $('emQ').oninput = drawEmp; $('emSt').onchange = drawEmp; $('emDiv').onchange = function(){ fillUnits(); drawEmp(); }; $('emUnit').onchange = drawEmp;
+  $('emQ').oninput = drawEmp; $('emSt').onchange = drawEmp; $('emSort').onchange = drawEmp; $('emDiv').onchange = function(){ fillUnits(); drawEmp(); }; $('emUnit').onchange = drawEmp;
   loadEmp();
 };
 function divShort(s){ return String(s || '').replace(/^รพ\.สมเด็จฯ\s*-\s*/, ''); }
@@ -163,6 +202,8 @@ function drawEmp(){
   if (!S._em) return;
   var q = $('emQ').value.toLowerCase(), st = $('emSt').value, dv = $('emDiv').value, un = $('emUnit').value;
   var list = S._em.filter(function(e){ return (!st || e.status === st) && (!dv || e.division === dv) && (!un || e.orgUnit === un) && (!q || (e.empCode + ' ' + e.fullName + ' ' + e.hrPosition + ' ' + e.orgUnit + ' ' + e.division).toLowerCase().indexOf(q) >= 0); });
+  var so = $('emSort').value, byCode = function(a, b){ return (+a.empCode || 0) - (+b.empCode || 0); }, txt = function(x, y){ if (x === y) return 0; if (!x) return 1; if (!y) return -1; return x.localeCompare(y, 'th'); };
+  list.sort(so === 'code' ? byCode : so === 'name' ? function(a, b){ return txt(a.firstName || a.fullName, b.firstName || b.fullName); } : so === 'unit' ? function(a, b){ return txt(a.orgUnit, b.orgUnit) || byCode(a, b); } : function(a, b){ return txt(a.division, b.division) || byCode(a, b); });
   $('emCnt').textContent = list.length + ' คน';
   $('emBody').innerHTML = '<div class="tbl"><table class="table table-hover"><thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง (HR)</th><th>หน่วยงาน</th><th>ฝ่าย</th><th>สถานะ</th><th>โทรศัพท์</th><th>ขึ้นเวรได้เฉพาะตำแหน่ง</th></tr></thead><tbody>' +
     (list.slice(0, 600).map(function(e){ return '<tr class="cursor ' + (e.status === 'INACTIVE' ? 'inactive' : '') + '" onclick="empModal(\'' + e.empCode + '\')"><td class="tnum">' + e.empCode + '</td><td><div class="who"><b>' + esc(e.fullName) + '</b></div></td><td>' + esc(e.hrPosition) + '</td><td class="small">' + esc(e.orgUnit) + '</td><td class="small">' + esc(divShort(e.division)) + '</td>' +

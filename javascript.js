@@ -54,7 +54,12 @@ function applyBrand(b){
   r.setProperty('--brand-100', rgbStr(shade(c, 0.8)));
   r.setProperty('--brand-rgb', c.join(','));
   r.setProperty('--brand-grad', 'linear-gradient(135deg,' + rgbStr(shade(c, 0.12)) + ' 0%,' + rgbStr(shade(c, -0.12)) + ' 100%)');
-  $$('.brand-logo').forEach(function(el){ el.innerHTML = BRAND.logo ? '<img src="' + BRAND.logo + '" alt="โลโก้">' : '<i class="bi bi-plus-lg"></i>'; el.classList.toggle('has-img', !!BRAND.logo); });
+  // v1.3.1 ตัดขอบขาวรอบโลโก้อัตโนมัติ (โลโก้จะเต็มกรอบ ดูสมส่วน) แล้วจำไว้ในเครื่อง
+  if (BRAND.logo && BRAND.logoTrimVer !== (BRAND.logoVer || BRAND.logo.length)) {
+    trimLogo(BRAND.logo, function(t){ BRAND.logoTrim = t; BRAND.logoTrimVer = BRAND.logoVer || BRAND.logo.length; applyBrand(BRAND); });
+  }
+  var lg = BRAND.logoTrim || BRAND.logo;
+  $$('.brand-logo').forEach(function(el){ el.innerHTML = lg ? '<img src="' + lg + '" alt="โลโก้">' : '<i class="bi bi-plus-lg"></i>'; el.classList.toggle('has-img', !!lg); });
   try { if (BRAND && BRAND.version) store('smc_brand', JSON.stringify(BRAND)); } catch (e) { }
   $$('.brand-short').forEach(function(el){ el.textContent = BRAND.short || 'SMC Duty'; });
   $$('.brand-org').forEach(function(el){ el.textContent = BRAND.org || ''; });
@@ -64,6 +69,31 @@ function applyBrand(b){
   var a = annHtml();
   if ($('annLogin')) $('annLogin').innerHTML = a;
   if ($('annApp')) $('annApp').innerHTML = a ? '<div class="ann-wrap">' + a + '</div>' : '';
+}
+/** ตัดพื้นที่ว่างสีขาว/โปร่งใสรอบโลโก้ เว้นขอบ 6% */
+function trimLogo(src, cb){
+  try {
+    var img = new Image();
+    img.onload = function(){
+      try {
+        var W = img.naturalWidth, H = img.naturalHeight, k = Math.min(1, 400 / Math.max(W, H));
+        var cv = document.createElement('canvas'); cv.width = Math.round(W * k); cv.height = Math.round(H * k);
+        var g = cv.getContext('2d'); g.drawImage(img, 0, 0, cv.width, cv.height);
+        var d = g.getImageData(0, 0, cv.width, cv.height).data, x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
+        for (var y = 0; y < cv.height; y++) for (var x = 0; x < cv.width; x++) { var i = (y * cv.width + x) * 4; if (d[i + 3] > 24 && (d[i] < 236 || d[i + 1] < 236 || d[i + 2] < 236)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+        if (x1 < 0) return cb(src);
+        var bw = x1 - x0 + 1, bh = y1 - y0 + 1, side = Math.max(bw, bh), pad = Math.round(side * 0.06), S2 = side + pad * 2;
+        if (S2 >= Math.max(cv.width, cv.height) * 0.94) return cb(src);   // ขอบน้อยอยู่แล้ว
+        var sc = Math.min(512, Math.round(S2 / k)) / S2;
+        var out = document.createElement('canvas'); out.width = out.height = Math.round(S2 * sc);
+        var o = out.getContext('2d'); o.fillStyle = '#fff'; o.fillRect(0, 0, out.width, out.height); o.imageSmoothingQuality = 'high';
+        o.drawImage(img, x0 / k, y0 / k, bw / k, bh / k, (pad + (side - bw) / 2) * sc, (pad + (side - bh) / 2) * sc, bw * sc, bh * sc);
+        cb(out.toDataURL('image/png'));
+      } catch (e) { cb(src); }
+    };
+    img.onerror = function(){ cb(src); };
+    img.src = src;
+  } catch (e) { cb(src); }
 }
 function footerHtml(){
   var b = BRAND || {};
@@ -131,21 +161,56 @@ function errParts(msg){ var p = String(msg || '').split('||'); return p.length >
 /* ลิงก์ backend: ตั้งใน js/config.js (var API_URL = '.../exec') หรือ window.SMC_API_URL */
 var API_URL = window.SMC_API_URL || window.API_URL || '';
 function viaGas(){ return !!(window.google && google.script && google.script.run); }
+/* v1.3.1 การเชื่อมต่อที่ทนทานขึ้น
+ * - จำกัดคำขอพร้อมกันไม่เกิน 4 (Apps Script รับงานพร้อมกันได้จำกัด)
+ * - อ่านข้อมูล: ถ้าเครือข่ายสะดุด/เซิร์ฟเวอร์ Google ไม่ว่าง ลองใหม่อัตโนมัติสูงสุด 3 ครั้ง (รอ 0.7 / 1.6 / 3.2 วินาที)
+ * - บันทึกข้อมูล: ไม่ลองซ้ำอัตโนมัติ (กันบันทึกซ้ำ) แต่แจ้งให้ตรวจสอบก่อนกดใหม่
+ */
+var NET = { active: 0, queue: [], MAX: 4 };
+function netSlot(){ return new Promise(function(res){ if (NET.active < NET.MAX) { NET.active++; res(); } else NET.queue.push(res); }); }
+function netDone(){ var n = NET.queue.shift(); if (n) n(); else NET.active = Math.max(0, NET.active - 1); }
+function isReadAction(a){ return /^(get|list|bootstrap|branding|ping|suggest|login)/.test(a); }
+function netErr(kind, msg){ var e = new Error(msg); e.net = kind; return e; }
+function fetchOnce(action, payload, timeoutMs){
+  var ctl = window.AbortController ? new AbortController() : null;
+  var timer = ctl ? setTimeout(function(){ ctl.abort(); }, timeoutMs || 180000) : null;
+  // ห้ามตั้ง Content-Type เอง: ปล่อยเป็น text/plain เพื่อไม่ให้เบราว์เซอร์ส่ง preflight (Apps Script ตอบ OPTIONS ไม่ได้)
+  return fetch(API_URL, { method: 'POST', redirect: 'follow', credentials: 'omit', cache: 'no-store', signal: ctl ? ctl.signal : undefined,
+    body: JSON.stringify({ action: action, token: S.token, payload: payload || {} }) })
+    .then(function(r){
+      return r.text().then(function(t){
+        var s = String(t || '').trim();
+        if (s.charAt(0) === '<') throw netErr('busy', 'เซิร์ฟเวอร์ Google ไม่ว่างชั่วคราว');
+        if (!r.ok) throw netErr('busy', 'เซิร์ฟเวอร์ตอบกลับผิดปกติ (HTTP ' + r.status + ')');
+        try { return JSON.parse(s); } catch (e) { throw netErr('busy', 'ข้อมูลตอบกลับไม่สมบูรณ์'); }
+      });
+    }, function(e){ throw (e && e.name === 'AbortError') ? netErr('timeout', 'เซิร์ฟเวอร์ตอบช้าเกินกำหนด') : netErr('offline', 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ (' + (e && e.message ? e.message : 'network') + ')'); })
+    .then(function(x){ if (timer) clearTimeout(timer); return x; }, function(e){ if (timer) clearTimeout(timer); throw e; });
+}
 function rawCall(action, payload, timeoutMs){
   if (viaGas()) return new Promise(function(resolve, reject){ google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).rpc(action, S.token, payload || {}); });
   if (!API_URL) return Promise.reject(new Error('ยังไม่ได้ตั้งค่าลิงก์ระบบ (config.js)'));
-  var ctl = window.AbortController ? new AbortController() : null;
-  var timer = ctl ? setTimeout(function(){ ctl.abort(); }, timeoutMs || 180000) : null;
-  var once = function(){
-    // ห้ามตั้ง Content-Type เอง: ปล่อยเป็น text/plain เพื่อไม่ให้เบราว์เซอร์ส่ง preflight (Apps Script ตอบ OPTIONS ไม่ได้)
-    return fetch(API_URL, { method: 'POST', redirect: 'follow', credentials: 'omit', cache: 'no-store', signal: ctl ? ctl.signal : undefined,
-      body: JSON.stringify({ action: action, token: S.token, payload: payload || {} }) })
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  var read = isReadAction(action), waits = [700, 1600, 3200], tries = 0;
+  var slow = setTimeout(function(){ slowHint(true); }, 3500);
+  var attempt = function(){
+    return netSlot().then(function(){ return fetchOnce(action, payload, timeoutMs); })
+      .then(function(x){ netDone(); return x; }, function(e){
+        netDone();
+        if (read && e.net !== 'timeout' && tries < waits.length) { var w = waits[tries++] + Math.random() * 300; return new Promise(function(r){ setTimeout(r, w); }).then(attempt); }
+        if (read && tries) e.message += ' · ระบบลองเชื่อมต่อใหม่ให้แล้ว ' + tries + ' ครั้ง';
+        if (!read && e.net === 'offline') e.message += '\nรายการนี้อาจบันทึกสำเร็จแล้ว กรุณากดรีเฟรชหน้าเพื่อตรวจสอบก่อนบันทึกซ้ำ';
+        throw e;
+      });
   };
-  // เครือข่ายสะดุด: ลองใหม่อัตโนมัติ 1 ครั้ง (เฉพาะคำสั่งอ่านข้อมูล)
-  var readOnly = /^(get|list|bootstrap|branding|ping)/.test(action);
-  return once().catch(function(e){ if (readOnly && !(e && e.name === 'AbortError')) return new Promise(function(r){ setTimeout(r, 800); }).then(once); throw e; })
-    .then(function(x){ if (timer) clearTimeout(timer); return x; }, function(e){ if (timer) clearTimeout(timer); throw (e && e.name === 'AbortError') ? new Error('เซิร์ฟเวอร์ตอบช้าเกินกำหนด') : e; });
+  return attempt().then(function(x){ clearTimeout(slow); slowHint(false); return x; }, function(e){ clearTimeout(slow); slowHint(false); throw e; });
+}
+/** แจ้งเบา ๆ เมื่อเซิร์ฟเวอร์ตอบช้า (ไม่ต้องกดปิด) */
+var SLOWN = 0;
+function slowHint(on){
+  SLOWN = Math.max(0, SLOWN + (on ? 1 : -1));
+  var el = $('slowHint');
+  if (!el) { el = document.createElement('div'); el.id = 'slowHint'; el.className = 'slow-hint'; el.innerHTML = '<span class="dotflash"><i></i><i></i><i></i></span> กำลังรอเซิร์ฟเวอร์ Google ตอบกลับ…'; document.body.appendChild(el); }
+  el.classList.toggle('show', SLOWN > 0);
 }
 /** แคชในหน่วยความจำ (เปิดหน้าเดิมซ้ำแสดงผลทันที แล้วค่อยโหลดข้อมูลล่าสุดมาแทน) */
 var MEMO = {};
@@ -163,13 +228,17 @@ function api(action, payload, opt){
     done();
     if (!res) { notify('ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์', 'error'); throw new Error('empty'); }
     if (res.ok) { if (opt.fresh) MEMO[memoKey(action, payload)] = res.data; return res.data; }
-    if (res.error === 'SESSION_EXPIRED') { store('smc_token', null); S.token = null; notify('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง', 'warning'); showLogin(); throw new Error(res.error); }
+    if (res.error === 'SESSION_EXPIRED') { store('smc_token', null); store('smc_boot', null); S.token = null; notify('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง', 'warning'); showLogin(); throw new Error(res.error); }
     var e = errParts(res.error);
     if (!opt.quiet) alertBox(e.title, e.text, 'warning');
     var er = new Error(e.text); er.handled = true; throw er;
   }, function(err){
     done();
-    if (!opt.quiet) alertBox('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', (err && err.message ? err.message : String(err)) + '\nกรุณาตรวจสอบอินเทอร์เน็ต แล้วลองใหม่อีกครั้ง', 'error');
+    if (!opt.quiet) {
+      var m = err && err.message ? err.message : String(err);
+      var t = err && err.net === 'busy' ? 'เซิร์ฟเวอร์ Google ไม่ว่างชั่วคราว' : err && err.net === 'timeout' ? 'เซิร์ฟเวอร์ตอบช้าเกินกำหนด' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ';
+      alertBox(t, m + '\n\nกรุณารอสักครู่แล้วลองใหม่ หากยังเป็นอยู่ ให้ตรวจสอบอินเทอร์เน็ต หรือรีเฟรชหน้าเว็บ', 'error');
+    }
     throw err;
   });
 }
@@ -250,21 +319,50 @@ function download(files){
 
 /* ================= เข้าสู่ระบบ ================= */
 function showOnly(id){ ['vLogin','vForce','vApp'].forEach(function(v){ $(v).hidden = v !== id; }); $('actionbar').classList.remove('show'); }
-function showLogin(){ showOnly('vLogin'); applyBrand(BRAND); setTimeout(function(){ $('lgCode').focus(); }, 50); }
+var lgClock = null;
+function showLogin(){
+  showOnly('vLogin'); applyBrand(BRAND);
+  var saved = store('smc_rememberCode');
+  if (saved) { $('lgCode').value = saved; $('lgRemember').checked = true; }
+  var tick = function(){ var d = new Date(); if ($('lgTime')) { $('lgTime').textContent = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.'; $('lgDate').textContent = d.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } };
+  tick(); clearInterval(lgClock); lgClock = setInterval(tick, 15000);
+  setTimeout(function(){ (saved ? $('lgPw') : $('lgCode')).focus(); }, 60);
+}
+(function(){
+  var pw = $('lgPw'), eye = $('lgEye');
+  eye.onclick = function(){ var show = pw.type === 'password'; pw.type = show ? 'text' : 'password'; eye.innerHTML = '<i class="bi bi-' + (show ? 'eye-slash' : 'eye') + '"></i>'; eye.classList.toggle('on', show); eye.setAttribute('aria-label', show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'); pw.focus(); };
+  var caps = function(e){ if (e.getModifierState) $('lgCaps').hidden = !e.getModifierState('CapsLock'); };
+  pw.addEventListener('keyup', caps); pw.addEventListener('keydown', caps);
+  $('lgCode').addEventListener('input', function(){ this.value = this.value.replace(/\D/g, '').slice(0, 10); });
+})();
+function lgShake(el){ var c = $('fLogin'); c.classList.remove('shake'); void c.offsetWidth; c.classList.add('shake'); if (el) el.focus(); }
 
 $('fLogin').addEventListener('submit', function(e){
   e.preventDefault();
-  api('login', { empCode: $('lgCode').value.trim(), password: $('lgPw').value }, { btn: $('lgBtn'), btnText: 'กำลังเข้าสู่ระบบ' }).then(function(r){
-    S.token = r.token; store('smc_token', r.token); $('lgPw').value = '';
-    start(true);
-  }).catch(function(){});
+  var code = $('lgCode').value.trim(), pw = $('lgPw').value;
+  if (!code) return lgShake($('lgCode'));
+  if (!pw) return lgShake($('lgPw'));
+  if ($('lgRemember').checked) store('smc_rememberCode', code); else store('smc_rememberCode', null);
+  api('login', { empCode: code, password: pw }, { btn: $('lgBtn'), btnText: 'กำลังเข้าสู่ระบบ' }).then(function(r){
+    S.token = r.token; store('smc_token', r.token); $('lgPw').value = ''; clearInterval(lgClock);
+    $('vLogin').classList.add('lg-out');
+    setTimeout(function(){ $('vLogin').classList.remove('lg-out'); start(true); }, 260);
+  }).catch(function(){ lgShake(); });
 });
 
+/* v1.3.1 เปิดแอปทันทีจากข้อมูลที่จำไว้ในเครื่อง แล้วค่อยตรวจสอบกับเซิร์ฟเวอร์เบื้องหลัง (ไม่ต้องรอหน้าขาว) */
+function bootSig(b){ return JSON.stringify([b.ym, b.me && b.me.roles, b.me && b.me.name, b.canApprove, b.canReview, (b.positions || []).map(function(p){ return p.id; }), b.myPositions || b.posRoles || '']); }
 function start(fresh){
-  api('bootstrap').then(function(b){
+  var cached = null;
+  if (!fresh && S.token) { try { var c = JSON.parse(store('smc_boot') || 'null'); if (c && c.t === S.token.slice(-16) && c.b && c.b.me && !c.b.me.mustChange && c.b.me.hasPhone) cached = c.b; } catch (e) { } }
+  if (cached) { S.boot = cached; S.ym = S.ym || cached.ym; showApp(); }
+  api('bootstrap', {}, { quiet: !!cached }).then(function(b){
+    var changed = !cached || bootSig(cached) !== bootSig(b);
+    if (cached && S.ym === cached.ym && cached.ym !== b.ym) S.ym = b.ym;
     S.boot = b; S.ym = S.ym || b.ym;
+    try { store('smc_boot', JSON.stringify({ t: S.token.slice(-16), b: b })); } catch (e) { }
     if (b.me.mustChange || !b.me.hasPhone) return showForce();
-    showApp();
+    if (changed) showApp();
     if (fresh) notify('ยินดีต้อนรับ ' + b.me.name.split(' ').slice(0, 2).join(' '));
   }).catch(function(){ if (!S.boot) showLogin(); });
 }
@@ -289,7 +387,7 @@ $('fPhone').addEventListener('submit', function(e){
   api('updatePhone', { phone: $('phNew').value }, { btn: e.submitter }).then(function(me){ S.boot.me = me; notify('บันทึกหมายเลขโทรศัพท์เรียบร้อย'); showApp(); }).catch(function(){});
 });
 
-function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); store('smc_token', null); S.token = null; S.boot = null; showLogin(); }
+function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); store('smc_token', null); store('smc_boot', null); S.token = null; S.boot = null; showLogin(); }
 
 function openAccount(){
   var me = S.boot.me;
