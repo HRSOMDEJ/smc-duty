@@ -5,7 +5,7 @@ function enhanceSelects(root){ $$('select[data-search]', root || document).forEa
 function comboSync(sel){ if (sel && sel._combo) sel._combo.label(); }
 function setSel(id, v){ var s = $(id); if (!s) return; s.value = v; comboSync(s); }
 var _comboOpen = null;
-document.addEventListener('mousedown', function(e){ if (_comboOpen && !_comboOpen.wrap.contains(e.target)) _comboOpen.close(); });
+document.addEventListener('mousedown', function(e){ if (_comboOpen && !_comboOpen.wrap.contains(e.target) && !_comboOpen.pop.contains(e.target)) _comboOpen.close(); });
 window.addEventListener('scroll', function(e){ if (_comboOpen && !(e.target && e.target.closest && e.target.closest('.combo-pop'))) _comboOpen.close(); }, true);
 window.addEventListener('resize', function(){ if (_comboOpen) _comboOpen.close(); });
 function makeCombo(sel){
@@ -21,12 +21,14 @@ function makeCombo(sel){
   wrap.appendChild(pop);
   var q = pop.querySelector('.combo-q'), list = pop.querySelector('.combo-list'), items = [], act = -1;
   var api2 = {
-    wrap: wrap,
+    wrap: wrap, pop: pop,
     label: function(){ var o = sel.options[sel.selectedIndex]; btn.innerHTML = '<span class="text-truncate">' + esc(o ? o.text : '—') + '</span>'; btn.disabled = sel.disabled; },
     open: function(){
       if (sel.disabled) return;
       if (_comboOpen && _comboOpen !== api2) _comboOpen.close();
       _comboOpen = api2; wrap.classList.add('open'); q.value = ''; render();
+      // v1.3.1 ย้ายรายการตัวเลือกไปไว้ชั้นบนสุดของหน้า (ไม่ถูกส่วนอื่นของหน้าทับหรือตัด)
+      document.body.appendChild(pop); pop.classList.add('show');
       // วางตำแหน่งแบบ fixed เพื่อไม่ให้ถูกตัดในตาราง/หน้าต่างที่เลื่อนได้
       var r = btn.getBoundingClientRect(), up = window.innerHeight - r.bottom < 300 && r.top > 300;
       pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - Math.max(r.width, 260) - 8)) + 'px';
@@ -34,7 +36,7 @@ function makeCombo(sel){
       if (up) { pop.style.top = 'auto'; pop.style.bottom = (window.innerHeight - r.top + 4) + 'px'; } else { pop.style.bottom = 'auto'; pop.style.top = (r.bottom + 4) + 'px'; }
       setTimeout(function(){ q.focus(); var s = list.querySelector('.sel'); if (s) s.scrollIntoView({ block: 'nearest' }); }, 0);
     },
-    close: function(){ wrap.classList.remove('open'); if (_comboOpen === api2) _comboOpen = null; }
+    close: function(){ wrap.classList.remove('open'); pop.classList.remove('show'); if (pop.parentNode === document.body) wrap.appendChild(pop); if (_comboOpen === api2) _comboOpen = null; }
   };
   function render(){
     var s = q.value.trim().toLowerCase();
