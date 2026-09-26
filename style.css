@@ -675,3 +675,12 @@ tr.cal-row.dk-WEEKEND td,tr.sheet-empty.dk-WEEKEND td{background:var(--d-weekend
 .pr-end{text-align:center;font-size:9pt;color:#555;margin-top:10px}
 .pr-none{text-align:center;padding:30px;color:#555}
 .pr-foot{margin-top:14px;font-size:8.5pt;color:#555;border-top:1px solid #ccc;padding-top:4px}
+
+/* v1.2569.2 ผู้ลงนามรายตำแหน่ง */
+.ps-def{border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:#fafbfc}
+.ps-tbl td{vertical-align:middle}
+.ps-tbl tr.ps-g td{background:#f6f7f9;font-weight:700;font-size:12.5px;color:#555;padding:5px 10px}
+.ps-tbl tr.ps-chg td{background:#fff8e6}
+.ps-tbl .form-control:disabled{background:#f3f4f6;color:#888}
+@media (max-width:767px){.ps-tbl thead{display:none}.ps-tbl tr[data-i]{display:grid;grid-template-columns:1fr auto;gap:6px;padding:8px 4px;border-bottom:1px solid var(--line)}.ps-tbl tr[data-i] td{border:0;padding:0}.ps-tbl tr[data-i] td:nth-child(1){grid-column:1/3}.ps-tbl tr[data-i] td:nth-child(2),.ps-tbl tr[data-i] td:nth-child(3),.ps-tbl tr[data-i] td:nth-child(4){grid-column:1/2}.ps-tbl tr[data-i] td:nth-child(5){grid-column:2/3;grid-row:2}}
+.hist-note{border:1px dashed #b9c2cf;background:#f5f8fc;border-radius:12px;padding:8px 12px;font-size:13px;color:#445;margin-bottom:10px}

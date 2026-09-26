@@ -420,7 +420,7 @@ function drawSettings(){
   var s = S._st, admin = has('ADMIN');
   var v = function(k){ return s[k] ? s[k].value : ''; };
   var h = '<div class="row g-3"><div class="col-lg-6"><div class="card h-100"><div class="card-h"><h3><i class="bi bi-pen text-danger"></i> ผู้ลงนามในเอกสาร</h3></div><div class="card-b row g-2">' +
-    ['signer1Name|ผู้ตรวจสอบการลงเวลา (ชื่อ)', 'signer1Title|ตำแหน่ง', 'signer2Name|ผู้รับรอง (ชื่อ)', 'signer2Title|ตำแหน่ง'].map(function(x){ var p = x.split('|'); return '<div class="col-12"><label class="form-label" for="sg_' + p[0] + '">' + p[1] + '</label><input class="form-control" id="sg_' + p[0] + '" value="' + esc(v(p[0])) + '"></div>'; }).join('') +
+    ['signer1Name|ผู้ตรวจสอบกลาง (ชื่อ) · ตำแหน่งที่ไม่ได้ตั้งผู้ตรวจสอบเอง', 'signer1Title|ตำแหน่ง', 'signer2Name|ผู้รับรอง (ชื่อ) · ผู้จัดการคลินิก ใช้ทุกเอกสาร', 'signer2Title|ตำแหน่ง'].map(function(x){ var p = x.split('|'); return '<div class="col-12"><label class="form-label" for="sg_' + p[0] + '">' + p[1] + '</label><input class="form-control" id="sg_' + p[0] + '" value="' + esc(v(p[0])) + '"></div>'; }).join('') +
     '<div class="col-12"><button class="btn btn-brand" onclick="saveSigners(this)">บันทึกผู้ลงนาม</button></div></div></div></div>';
   h += '<div class="col-lg-6"><div class="card h-100"><div class="card-h"><h3><i class="bi bi-plug text-danger"></i> สถานะการเชื่อมต่อ</h3></div><div class="card-b">' +
     '<div class="d-flex justify-content-between py-1"><span>SmartAPI (Script Properties)</span>' + (s._api.user && s._api.pass ? '<span class="pill p-ok">ตั้งค่าแล้ว</span>' : '<span class="pill p-bad">ยังไม่ตั้งค่า</span>') + '</div>' +

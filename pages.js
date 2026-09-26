@@ -204,6 +204,7 @@ PAGES.booking = function(){
   mount(pageHead('งานของฉัน', 'ลงตารางเวร', 'เลือกเดือนและตำแหน่ง แล้วกด "ลงเวร" ในช่วงเวรที่ต้องการ ระบบควบคุมกรอบอัตรากำลังและป้องกันการลงเวรซ้ำช่วงเวลาให้อัตโนมัติ') +
     '<div class="filters">' + ymSelect('bkYm', S.bkYm || addYm(S.boot.ym, 1), 1, 2) + posSelect('bkPos', ids, S.bkPid || S.pid, multi, 'ทุกตาราง (ตำแหน่งที่ท่านดูแล)') +
     (manageIds().length ? '<div><label class="form-label">มุมมอง</label><div class="seg" id="bkMode"><button data-v="cal"' + (S.bkMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-calendar3"></i> ปฏิทิน</button><button data-v="sheet"' + (S.bkMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' : '') +
+    '<div class="ms-auto align-self-end"><button type="button" class="btn btn-sm btn-ghost" onclick="S.ym=$(\'bkYm\').value;go(\'overview\')" title="ดูตารางเวรเดือนก่อน ๆ ย้อนหลังได้ 3 ปี"><i class="bi bi-clock-history"></i> ดูตารางเวรย้อนหลัง</button></div>' +
     '</div><div id="bkState"></div><div id="bkBody">' + skeleton(8) + '</div>');
   $('bkYm').onchange = function(){ var el = this; gridGuard(function(){ S.bkYm = el.value; loadBoard(); }); };
   $('bkPos').onchange = function(){ var el = this; gridGuard(function(){ S.bkPid = el.value; if (el.value !== 'all') S.pid = el.value; loadBoard(); }); };
@@ -398,7 +399,7 @@ function approveAll(btn){
 /* ================= ตารางเวรรวม ================= */
 PAGES.overview = function(){
   S.ovMode = S.ovMode || store('smc_ovMode') || 'card';
-  mount(pageHead('งานของฉัน', 'ตารางเวรรวม', 'ภาพรวมตารางเวรทุกตำแหน่งในเดือนที่เลือก พร้อมสถานะการบันทึกเวลาในแต่ละช่อง · สลับเป็น "แบบ Google Sheet" เพื่อแก้ไขตำแหน่งที่ท่านดูแล') + '<div class="filters">' + ymSelect('ovYm', S.ym, 6, 2) +
+  mount(pageHead('งานของฉัน', 'ตารางเวรรวม', 'ภาพรวมตารางเวรทุกตำแหน่งในเดือนที่เลือก พร้อมสถานะการบันทึกเวลาในแต่ละช่อง · สลับเป็น "แบบ Google Sheet" เพื่อแก้ไขตำแหน่งที่ท่านดูแล') + '<div class="filters">' + ymSelect('ovYm', S.ym, 36, 2, 'เดือน (ย้อนหลังได้ 3 ปี)') +
     '<div><label class="form-label" for="ovPos">ตำแหน่ง</label><select class="form-select" data-search id="ovPos"><option value="all">ทุกตำแหน่ง</option>' + S.boot.positions.map(function(p){ return '<option value="' + p.id + '" data-sub="' + esc(p.groupName || '') + '"' + (S.ovPid === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
     '<div><label class="form-label">มุมมอง</label><div class="seg" id="ovMode"><button type="button" data-v="card"' + (S.ovMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-view-stacked"></i> แยกตามตำแหน่ง</button><button type="button" data-v="sheet"' + (S.ovMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' +
     '<div id="ovQBox"><label class="form-label" for="ovQ">ค้นหาชื่อ / รหัส</label><input class="form-control" id="ovQ" placeholder="ชื่อ หรือรหัสเจ้าหน้าที่"></div></div><div id="ovBody">' + skeleton(6) + '</div>');
@@ -411,8 +412,14 @@ PAGES.overview = function(){
 function loadOv(){
   $('ovQBox').hidden = S.ovMode === 'sheet';
   var pid = $('ovPos').value || 'all';
-  if (S.ovMode === 'sheet') return api('getScheduleGrid', { ym: $('ovYm').value, positionId: pid, scope: 'all' }).then(function(g){ $('ovBody').innerHTML = demoBanner(g.ym) + '<div id="ovGrid"></div>'; renderGrid('ovGrid', g, loadOv); }).catch(function(){});
+  if (S.ovMode === 'sheet') return api('getScheduleGrid', { ym: $('ovYm').value, positionId: pid, scope: 'all' }).then(function(g){ $('ovBody').innerHTML = demoBanner(g.ym) + histNote(g) + '<div id="ovGrid"></div>'; renderGrid('ovGrid', g, loadOv); }).catch(function(){});
   api('getScheduleOverview', { ym: $('ovYm').value }, { fresh: true, onCache: function(d){ S._ov = d; drawOv(); } }).then(function(d){ S._ov = d; drawOv(); }).catch(function(){});
+}
+/** v1.2569.2 ป้ายบอกว่าเป็นตารางเวรย้อนหลัง (ดูได้อย่างเดียว) */
+function histNote(d){
+  if (!d || !d.readOnly) return '';
+  return '<div class="hist-note"><i class="bi bi-clock-history"></i> <b>ตารางเวรย้อนหลัง เดือน' + esc(thYm(d.ym)) + '</b> · จัดเก็บในคลังข้อมูลแล้ว ดูได้อย่างเดียว' +
+    (d.source === 'records' ? ' · เดือนนี้มาจากระบบเดิม จึงแสดงตามรายการปฏิบัติงานจริงที่อนุมัติแล้ว' : '') + '</div>';
 }
 /** ตารางเวรแบบเมทริกซ์ (ใช้ร่วม: ตารางเวรรวม / ลงตารางเวรทุกตาราง) · รหัส ชื่อ ตำแหน่ง · สีสถานะบันทึก · รวมรายคน/รายวัน */
 function schedMatrix(p, dates, people, opt){
@@ -441,7 +448,7 @@ function drawOv(){
     if (!people.length) return;
     h += '<div class="card mb-3"><div class="card-h"><h3>' + esc(p.name) + '</h3><span class="sub">' + people.length + ' คน</span><span class="ms-auto">' + statusPill(p.status) + '</span></div>' + schedMatrix(p, d.dates, people) + '</div>';
   });
-  $('ovBody').innerHTML = demoBanner(d.ym) + (h ? '<div class="d-flex flex-wrap gap-3 mb-2">' + recLegend() + '</div>' + h + '<div class="d-flex flex-wrap gap-3">' + dayLegend() + '</div>' + legendHtml() : empty('calendar-x', q ? 'ไม่พบข้อมูลตามคำค้นหา' : pf !== 'all' ? 'ตำแหน่งนี้ยังไม่มีตารางเวรในเดือนนี้' : 'ยังไม่มีตารางเวรในเดือนนี้'));
+  $('ovBody').innerHTML = demoBanner(d.ym) + histNote(d) + (h ? '<div class="d-flex flex-wrap gap-3 mb-2">' + recLegend() + '</div>' + h + '<div class="d-flex flex-wrap gap-3">' + dayLegend() + '</div>' + legendHtml() : empty('calendar-x', q ? 'ไม่พบข้อมูลตามคำค้นหา' : pf !== 'all' ? 'ตำแหน่งนี้ยังไม่มีตารางเวรในเดือนนี้' : 'ยังไม่มีตารางเวรในเดือนนี้'));
 }
 
 /* ================= บันทึกเวลาปฏิบัติงาน ================= */
@@ -1333,9 +1340,13 @@ PAGES.export = function(){
     '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exTables(\'pdf\',this)"><i class="bi bi-filetype-pdf"></i> ดาวน์โหลด PDF</button>' +
     (xl ? '<button class="btn btn-ghost" onclick="exTables(\'xlsx\',this)"><i class="bi bi-file-earmark-excel"></i> ดาวน์โหลด Excel</button>' : '<span class="small-muted align-self-center"><i class="bi bi-lock"></i> ไฟล์ Excel สำหรับผู้ดูแลระบบเท่านั้น</span>') + '</div>' +
     '<div class="small-muted mt-2">ตำแหน่งที่ยังไม่อนุมัติ เอกสารจะมีข้อความ "ฉบับร่าง – ยังไม่ได้รับอนุมัติ" · มีเลขหน้าและข้อมูลผู้จัดพิมพ์ทุกหน้า</div></div></div></div>';
-  h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-info"><i class="bi bi-pen"></i></div><div><h3>ใบลงชื่อปฏิบัติงาน FM-HRM-031</h3><div class="sub">ใบที่ k คือบุคลากรลำดับที่ k ของแต่ละวัน</div></div></div><div class="card-b">' + posSelect('exSignPos', posIdsFor(['ENTRY', 'REVIEWER']), S.pid) +
-    '<div class="mt-2"><label class="form-label" for="exSheets">จำนวนใบ (ไม่ระบุ = ตามตารางเวร/กรอบ)</label><input class="form-control" id="exSheets" type="number" min="1" max="30" style="max-width:140px"></div>' +
-    '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exSign(false,this)"><i class="bi bi-people"></i> พิมพ์ตามตารางเวร</button><button class="btn btn-ghost" onclick="exSign(true,this)"><i class="bi bi-file-earmark"></i> พิมพ์แบบไม่มีรายชื่อ</button></div></div></div></div>';
+  h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-info"><i class="bi bi-pen"></i></div><div><h3>ใบลงชื่อปฏิบัติงาน FM-HRM-031</h3><div class="sub">พิมพ์ได้ทุกตำแหน่งพร้อมกัน จำนวนใบตามกรอบเวรที่คลินิกกำหนด</div></div></div><div class="card-b">' +
+    posSelect('exSignPos', ids, 'all', true, 'ทุกตำแหน่งที่ท่านดูแล') +
+    '<div class="mt-2"><label class="form-label">รายชื่อในใบ</label><div class="seg w-100" id="exSignMode"><button type="button" data-v="names" class="on">ใส่รายชื่อตามตารางเวร</button><button type="button" data-v="blank">ไม่ใส่รายชื่อ (ใบเปล่า)</button></div></div>' +
+    '<div class="mt-2" id="exSheetsBox" hidden><label class="form-label" for="exSheets">จำนวนใบ (ไม่ระบุ = ตามกรอบเวร)</label><input class="form-control" id="exSheets" type="number" min="1" max="40" style="max-width:140px"></div>' +
+    '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exSign(\'pdf\',this)"><i class="bi bi-filetype-pdf"></i> ดาวน์โหลด PDF</button>' +
+    (xl ? '<button class="btn btn-ghost" onclick="exSign(\'xlsx\',this)"><i class="bi bi-file-earmark-excel"></i> ดาวน์โหลด Excel</button>' : '') + '</div>' +
+    '<div class="small-muted mt-2">ตัวอย่าง: กรอบพยาบาลเดือนนี้สูงสุด 7 คน → ได้ใบที่ 1–7 · วันที่กรอบน้อยกว่า (เช่น 5 คน) ใบที่ 6–7 ของวันนั้นเป็นช่องสีเทาทึบ ห้ามลงชื่อ · วันปิดคลินิกทึบทั้งแถว</div></div></div></div>';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-warn"><i class="bi bi-paperclip"></i></div><div><h3>ใบลืมสแกนรวมเล่ม</h3><div class="sub">รวมไฟล์แนบทั้งเดือนเป็น PDF ไฟล์เดียว พร้อมหัวกระดาษระบุรายการ</div></div></div><div class="card-b">' + posSelect('exAttPos', ids, 'all', true) +
     '<div class="mt-3"><button class="btn btn-brand" onclick="printAttachments($(\'exYm\').value,$(\'exAttPos\').value)"><i class="bi bi-printer"></i> รวมเป็น PDF และดาวน์โหลด</button></div><div class="small-muted mt-2">เรียงตามตำแหน่งและวันที่ · ไฟล์รูปและ PDF รวมอยู่ในเล่มเดียว</div></div></div></div>';
   if (has('COORD')) {
@@ -1344,17 +1355,82 @@ PAGES.export = function(){
       '<div class="col-sm-6"><label class="form-label" for="hrMode">รูปแบบไฟล์</label><select class="form-select" id="hrMode"><option value="combined">ไฟล์เดียว (1 ชีทต่อรหัสรายได้)</option><option value="split">แยกไฟล์ตามรหัสรายได้</option><option value="zip">ZIP (แยกไฟล์รวมในไฟล์เดียว)</option></select></div></div>' +
       '<div class="mt-3"><button class="btn btn-brand" onclick="exHRMi(this)"><i class="bi bi-download"></i> ดาวน์โหลดไฟล์ HRMi</button></div><div id="hrRes" class="small-muted mt-2"></div></div></div></div>';
   }
+  h += '<div class="col-12"><div class="card"><div class="card-h"><div class="ic-box ic-violet"><i class="bi bi-person-check"></i></div><div><h3>ผู้ลงนามในเอกสาร</h3><div class="sub">ผู้ตรวจสอบตั้งแยกตามตำแหน่งได้ · ผู้รับรองคือผู้จัดการคลินิกคนเดียวทุกเอกสาร</div></div><button class="btn btn-sm btn-ghost ms-auto" id="psToggle" onclick="psToggle()"><i class="bi bi-sliders"></i> ตั้งผู้ตรวจสอบรายตำแหน่ง</button></div><div class="card-b" id="psBody"><div class="skel"></div></div></div></div>';
   mount(h + '</div>');
+  loadPosSigners();
+  var syncSheets = function(){ $('exSheetsBox').hidden = ($('exSignPos').value || 'all') === 'all'; };
+  $('exSignPos').addEventListener('change', syncSheets); syncSheets();
+  $$('#exSignMode button').forEach(function(b){ b.onclick = function(){ $$('#exSignMode button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); }; });
   $('exYm').onchange = function(){ S.ym = this.value; $('exDemo').innerHTML = demoBanner(S.ym); };
   $('exDemo').innerHTML = demoBanner($('exYm').value);
   $$('#exDoc button').forEach(function(b){ b.onclick = function(){ $$('#exDoc button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); }; });
 };
 function exTables(fmt2, btn){
   var on = $$('#exDoc .on')[0], doc = on ? on.dataset.v : 'both';
-  api('exportTables', { ym: $('exYm').value, positionIds: [$('exPos').value], docType: doc, kind: $('exKind').value, format: fmt2 }, { btn: btn, block: 'กำลังจัดทำเอกสาร อาจใช้เวลา 10–60 วินาที…' }).then(function(r){ download(r.files); }).catch(function(){});
+  api('exportTables', { ym: $('exYm').value, positionIds: [$('exPos').value], docType: doc, kind: $('exKind').value, format: fmt2 }, { btn: btn, timeout: 360000, block: 'กำลังจัดทำเอกสาร อาจใช้เวลา 10–90 วินาที…' }).then(function(r){ download(r.files); }).catch(function(){});
 }
-function exSign(blank, btn){
-  api('exportSignSheets', { ym: $('exYm').value, positionId: $('exSignPos').value, blank: blank, sheets: $('exSheets').value }, { btn: btn, block: 'กำลังจัดทำใบลงชื่อ…' }).then(function(r){ download(r.files); }).catch(function(){});
+function exSign(fmt2, btn){
+  var on = $$('#exSignMode .on')[0], blank = on && on.dataset.v === 'blank', pid = $('exSignPos').value || 'all';
+  api('exportSignSheets', { ym: $('exYm').value, positionId: pid, blank: blank, sheets: pid === 'all' ? '' : $('exSheets').value, format: fmt2 },
+    { btn: btn, timeout: 360000, block: pid === 'all' ? 'กำลังจัดทำใบลงชื่อทุกตำแหน่ง อาจใช้เวลา 1–3 นาที…' : 'กำลังจัดทำใบลงชื่อ…' }).then(function(r){
+    download(r.files);
+    notify('จัดทำใบลงชื่อ ' + r.sheets + ' ใบ' + (r.positions > 1 ? ' (' + r.positions + ' ตำแหน่ง)' : '') + (r.skipped ? ' · ข้าม ' + r.skipped + ' ตำแหน่งที่ไม่มีกรอบเวร' : ''));
+  }).catch(function(){});
+}
+/* ---------- ผู้ลงนาม: ผู้ตรวจสอบรายตำแหน่ง ---------- */
+var PS_MODES = [['default', 'ผู้ตรวจสอบกลาง'], ['custom', 'ระบุชื่อผู้ตรวจสอบ'], ['blank', 'เว้นว่าง (เขียนชื่อเอง)'], ['none', 'ไม่มีช่องผู้ตรวจสอบ']];
+function loadPosSigners(){
+  api('getPosSigners', {}).then(function(d){ S._ps = d; S._psOpen = S._psOpen || false; drawPosSigners(); }).catch(function(){ if ($('psBody')) $('psBody').innerHTML = '<span class="small-muted">โหลดข้อมูลผู้ลงนามไม่สำเร็จ</span>'; });
+}
+function psToggle(){ S._psOpen = !S._psOpen; drawPosSigners(); }
+function psLabel(x, d){
+  if (x.m === 'custom') return esc(x.n) + (x.t ? '<div class="small-muted">' + esc(x.t) + '</div>' : '');
+  if (x.m === 'blank') return '<span class="text-secondary">เว้นว่างให้เขียนชื่อ</span>';
+  if (x.m === 'none') return '<span class="text-secondary">ไม่มีช่องผู้ตรวจสอบ</span>';
+  return esc(d.s1) + ' <span class="pill p-mute">ผู้ตรวจสอบกลาง</span>';
+}
+function drawPosSigners(){
+  var d = S._ps, box = $('psBody'); if (!d || !box) return;
+  $('psToggle').innerHTML = S._psOpen ? '<i class="bi bi-chevron-up"></i> ย่อ' : '<i class="bi bi-sliders"></i> ตั้งผู้ตรวจสอบรายตำแหน่ง';
+  var h = '<div class="row g-3 mb-2"><div class="col-md-6"><div class="ps-def"><div class="small-muted">ผู้ตรวจสอบกลาง (ใช้เมื่อตำแหน่งไม่ได้ระบุ)</div><b>' + esc(d.def.s1 || '-') + '</b><div class="small-muted">' + esc(d.def.t1 || '') + '</div></div></div>' +
+    '<div class="col-md-6"><div class="ps-def"><div class="small-muted">ผู้รับรอง (ทุกเอกสาร)</div><b>' + esc(d.def.s2 || '-') + '</b><div class="small-muted">' + esc(d.def.t2 || '') + '</div></div></div></div>' +
+    (d.canDefault ? '<div class="small-muted mb-2"><i class="bi bi-info-circle"></i> แก้ชื่อผู้ตรวจสอบกลางและผู้รับรองได้ที่เมนู การตั้งค่า → ผู้ลงนามในเอกสาร</div>' : '');
+  if (!d.list.length) { box.innerHTML = h + '<span class="small-muted">ท่านไม่มีตำแหน่งที่ตั้งผู้ตรวจสอบได้</span>'; return; }
+  if (!S._psOpen) {
+    var custom = d.list.filter(function(x){ return x.m !== 'default'; });
+    h += '<div class="small-muted">' + (custom.length ? 'ตำแหน่งที่ตั้งผู้ตรวจสอบเอง ' + custom.length + ' ตำแหน่ง: ' + custom.map(function(x){ return '<span class="chip">' + esc(x.name) + '</span>'; }).join(' ') : 'ทุกตำแหน่งใช้ผู้ตรวจสอบกลาง') + '</div>';
+    box.innerHTML = h; return;
+  }
+  h += '<div class="tbl"><table class="table ps-tbl mb-0"><thead><tr><th>ตำแหน่ง</th><th style="width:210px">ผู้ตรวจสอบ</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่งผู้ตรวจสอบ</th><th style="width:44px"></th></tr></thead><tbody>';
+  var lastG = null;
+  d.list.forEach(function(x, i){
+    if (x.groupName !== lastG) { lastG = x.groupName; h += '<tr class="ps-g"><td colspan="5">' + esc(x.groupName || 'ไม่ระบุกลุ่ม') + '</td></tr>'; }
+    h += '<tr data-i="' + i + '"><td><b>' + esc(x.name) + '</b>' + (x.by ? '<div class="small-muted">แก้ไขล่าสุด ' + esc(x.by) + '</div>' : '') + '</td>' +
+      '<td><select class="form-select form-select-sm ps-m" aria-label="รูปแบบผู้ตรวจสอบ ' + esc(x.name) + '">' + PS_MODES.map(function(m){ return '<option value="' + m[0] + '"' + (x.m === m[0] ? ' selected' : '') + '>' + m[1] + '</option>'; }).join('') + '</select></td>' +
+      '<td><input class="form-control form-control-sm ps-n" maxlength="80" value="' + esc(x.n) + '" placeholder="เช่น นางสาวสมใจ ใจดี" aria-label="ชื่อผู้ตรวจสอบ"></td>' +
+      '<td><input class="form-control form-control-sm ps-t" maxlength="120" value="' + esc(x.t) + '" placeholder="เช่น หัวหน้าฝ่ายเภสัชกรรม" aria-label="ตำแหน่งผู้ตรวจสอบ"></td>' +
+      '<td><button type="button" class="btn btn-sm btn-ghost ps-cp" title="ใช้กับทุกตำแหน่งในกลุ่ม ' + esc(x.groupName || '') + '"><i class="bi bi-copy"></i></button></td></tr>';
+  });
+  h += '</tbody></table></div><div class="d-flex gap-2 flex-wrap align-items-center mt-2"><button class="btn btn-brand" onclick="savePosSigners(this)"><i class="bi bi-save"></i> บันทึกผู้ตรวจสอบ</button><span class="small-muted">ปุ่ม <i class="bi bi-copy"></i> คัดลอกผู้ตรวจสอบไปทุกตำแหน่งในกลุ่มเดียวกัน · มีผลกับตารางเวร ตาราง OT และใบลงชื่อที่พิมพ์หลังบันทึก</span></div>';
+  box.innerHTML = h;
+  var sync = function(tr){ var m = tr.querySelector('.ps-m').value; tr.querySelector('.ps-n').disabled = m !== 'custom'; tr.querySelector('.ps-t').disabled = m === 'default' || m === 'none'; tr.querySelector('.ps-n').placeholder = m === 'default' ? d.def.s1 : m === 'blank' ? 'เขียนชื่อด้วยมือ' : m === 'none' ? '-' : 'เช่น นางสาวสมใจ ใจดี'; };
+  $$('.ps-tbl tbody tr[data-i]').forEach(function(tr){
+    sync(tr);
+    tr.querySelector('.ps-m').onchange = function(){ sync(tr); };
+    tr.querySelector('.ps-cp').onclick = function(){
+      var g = d.list[+tr.dataset.i].groupName, m = tr.querySelector('.ps-m').value, n = tr.querySelector('.ps-n').value, t = tr.querySelector('.ps-t').value, cnt = 0;
+      $$('.ps-tbl tbody tr[data-i]').forEach(function(o){ if (d.list[+o.dataset.i].groupName !== g || o === tr) return; o.querySelector('.ps-m').value = m; o.querySelector('.ps-n').value = n; o.querySelector('.ps-t').value = t; sync(o); o.classList.add('ps-chg'); cnt++; });
+      notify(cnt ? 'คัดลอกไป ' + cnt + ' ตำแหน่งในกลุ่ม ' + (g || '') + ' แล้ว กด บันทึกผู้ตรวจสอบ' : 'กลุ่มนี้มีตำแหน่งเดียว');
+    };
+  });
+}
+function savePosSigners(btn){
+  var items = $$('.ps-tbl tbody tr[data-i]').map(function(tr){ return { id: S._ps.list[+tr.dataset.i].id, m: tr.querySelector('.ps-m').value, n: tr.querySelector('.ps-n').value.trim(), t: tr.querySelector('.ps-t').value.trim() }; });
+  var bad = items.filter(function(x){ return x.m === 'custom' && !x.n; })[0];
+  if (bad) { var tr = $$('.ps-tbl tbody tr[data-i]').filter(function(t){ return S._ps.list[+t.dataset.i].id === bad.id; })[0]; if (tr) { tr.querySelector('.ps-n').classList.add('is-invalid'); tr.querySelector('.ps-n').focus(); } return notify('กรุณาระบุชื่อผู้ตรวจสอบ', 'error'); }
+  var changed = items.filter(function(x){ var o = S._ps.list.filter(function(y){ return y.id === x.id; })[0]; return o.m !== x.m || (o.n || '') !== x.n || (o.t || '') !== x.t; });
+  if (!changed.length) return notify('ไม่มีรายการที่เปลี่ยนแปลง');
+  api('savePosSigners', { items: changed }, { btn: btn }).then(function(d){ S._ps = d; drawPosSigners(); notify('บันทึกผู้ตรวจสอบ ' + changed.length + ' ตำแหน่งเรียบร้อย'); }).catch(function(){});
 }
 function exHRMi(btn){
   api('exportHRMi', { ym: $('exYm').value, type: $('hrType').value, mode: $('hrMode').value }, { btn: btn, block: 'กำลังจัดทำไฟล์ HRMi…' }).then(function(r){
