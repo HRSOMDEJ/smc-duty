@@ -125,12 +125,18 @@ function openHelp(){
   applyBrand(BRAND);
   S.token = store('smc_token');
   if (S.token) start(); else showLogin();
+  checkFrontVersion();
   // หน้าเว็บบน GitHub: โหลดรูปลักษณ์ล่าสุด + ตรวจการเชื่อมต่อระบบ
   if (!viaGas()) {
     if (!API_URL) { var cs = $('connState'); if (cs) cs.innerHTML = '<span class="bad"><i class="bi bi-exclamation-triangle"></i> ยังไม่ได้ตั้งค่าลิงก์ระบบในไฟล์ config.js</span>'; return; }
     var t0 = Date.now();
     rawCall('branding', { logoVer: BRAND && BRAND.logo ? BRAND.logoVer : '' }).then(function(r){
-      if (r && r.ok) { var nb = r.data; if (nb.logoSame) nb.logo = BRAND.logo; applyBrand(nb); }
+      if (r && r.ok) {
+        var nb = r.data; if (nb.logoSame) nb.logo = BRAND.logo; applyBrand(nb);
+        // หน้าเว็บกับระบบหลังบ้านต้องเป็นรุ่นเดียวกัน
+        if (window.SMC_BUILD && nb.build && nb.build > SMC_BUILD) updateBar('มีการปรับปรุงระบบเป็นเวอร์ชันใหม่', true);
+        else if (window.SMC_BUILD && (!nb.build || nb.build < SMC_BUILD)) S.backendOld = 'ระบบหลังบ้าน (Apps Script) ยังเป็นเวอร์ชัน ' + (nb.version || '?') + ' แต่หน้าเว็บเป็น ' + SMC_VERSION + ' (' + SMC_BUILD + ') · ผู้ดูแลระบบ: วางไฟล์ .gs ชุดใหม่แล้ว Deploy → Manage deployments → New version';
+      }
       var cs = $('connState'); if (cs) cs.innerHTML = '<span class="ok"><i></i> เชื่อมต่อระบบแล้ว · ' + ((Date.now() - t0) / 1000).toFixed(1) + ' วินาที</span>';
     }).catch(function(){
       var cs = $('connState'); if (cs) cs.innerHTML = '<span class="bad"><i class="bi bi-wifi-off"></i> เชื่อมต่อระบบไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต แล้วรีเฟรชหน้านี้</span>';

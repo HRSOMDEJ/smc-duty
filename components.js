@@ -6,8 +6,9 @@ function comboSync(sel){ if (sel && sel._combo) sel._combo.label(); }
 function setSel(id, v){ var s = $(id); if (!s) return; s.value = v; comboSync(s); }
 var _comboOpen = null;
 document.addEventListener('mousedown', function(e){ if (_comboOpen && !_comboOpen.wrap.contains(e.target) && !_comboOpen.pop.contains(e.target)) _comboOpen.close(); });
-window.addEventListener('scroll', function(e){ if (_comboOpen && !(e.target && e.target.closest && e.target.closest('.combo-pop'))) _comboOpen.close(); }, true);
-window.addEventListener('resize', function(){ if (_comboOpen) _comboOpen.close(); });
+// v1.2569 เลื่อนหน้าหรือย่อขยายหน้าต่าง: ย้ายรายการตัวเลือกตามช่องเลือก (ไม่ปิดเอง) · ปิดเมื่อช่องเลือกเลื่อนพ้นจอ
+window.addEventListener('scroll', function(e){ if (_comboOpen && !(e.target && e.target.closest && e.target.closest('.combo-pop'))) _comboOpen.place(true); }, true);
+window.addEventListener('resize', function(){ if (_comboOpen) _comboOpen.place(true); });
 function makeCombo(sel){
   sel.dataset.combo = '1';
   var wrap = document.createElement('div'); wrap.className = 'combo';
@@ -27,14 +28,25 @@ function makeCombo(sel){
       if (sel.disabled) return;
       if (_comboOpen && _comboOpen !== api2) _comboOpen.close();
       _comboOpen = api2; wrap.classList.add('open'); q.value = ''; render();
-      // v1.3.1 ย้ายรายการตัวเลือกไปไว้ชั้นบนสุดของหน้า (ไม่ถูกส่วนอื่นของหน้าทับหรือตัด)
+      // ย้ายรายการตัวเลือกไปไว้ชั้นบนสุดของหน้า (ไม่ถูกส่วนอื่นของหน้าทับหรือตัด) แล้ววางตำแหน่งใต้/เหนือช่องเลือก
       document.body.appendChild(pop); pop.classList.add('show');
-      // วางตำแหน่งแบบ fixed เพื่อไม่ให้ถูกตัดในตาราง/หน้าต่างที่เลื่อนได้
-      var r = btn.getBoundingClientRect(), up = window.innerHeight - r.bottom < 300 && r.top > 300;
-      pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - Math.max(r.width, 260) - 8)) + 'px';
+      pop.querySelector('.combo-search').style.display = sel.options.length > 7 ? '' : 'none';   // ตัวเลือกน้อย ไม่ต้องมีช่องค้นหา
+      api2.place();
+      var fEl = sel.options.length > 7 ? q : list; if (fEl === list) list.tabIndex = -1;
+      try { fEl.focus({ preventScroll: true }); } catch (e) { fEl.focus(); }
+      var sEl = list.querySelector('.sel'); if (sEl) list.scrollTop = Math.max(0, sEl.offsetTop - list.clientHeight / 2 + sEl.offsetHeight / 2);
+    },
+    place: function(fromScroll){
+      if (!pop.classList.contains('show')) return;
+      var r = btn.getBoundingClientRect(), vh = window.innerHeight, vw = window.innerWidth;
+      if (fromScroll && (r.bottom < 0 || r.top > vh || !btn.offsetParent)) { api2.close(); return; }
+      var below = vh - r.bottom - 10, above = r.top - 10, up = below < 250 && above > below;
+      var room = Math.max(120, (up ? above : below) - 58);
+      list.style.maxHeight = Math.min(290, room) + 'px';
+      var w = Math.max(r.width, 260);
       pop.style.minWidth = r.width + 'px';
-      if (up) { pop.style.top = 'auto'; pop.style.bottom = (window.innerHeight - r.top + 4) + 'px'; } else { pop.style.bottom = 'auto'; pop.style.top = (r.bottom + 4) + 'px'; }
-      setTimeout(function(){ q.focus(); var s = list.querySelector('.sel'); if (s) s.scrollIntoView({ block: 'nearest' }); }, 0);
+      pop.style.left = Math.max(8, Math.min(r.left, vw - Math.min(w, vw - 16) - 8)) + 'px';
+      if (up) { pop.style.top = 'auto'; pop.style.bottom = (vh - r.top + 4) + 'px'; } else { pop.style.bottom = 'auto'; pop.style.top = (r.bottom + 4) + 'px'; }
     },
     close: function(){ wrap.classList.remove('open'); pop.classList.remove('show'); if (pop.parentNode === document.body) wrap.appendChild(pop); if (_comboOpen === api2) _comboOpen = null; }
   };
@@ -44,11 +56,11 @@ function makeCombo(sel){
     list.innerHTML = items.map(function(o, i){ return '<div class="combo-opt' + (o.selected ? ' sel' : '') + '" data-i="' + i + '" role="option">' + esc(o.text) + (o.dataset.sub ? '<small>' + esc(o.dataset.sub) + '</small>' : '') + '</div>'; }).join('') || '<div class="combo-empty">ไม่พบรายการที่ค้นหา</div>';
     act = -1; items.forEach(function(o, i){ if (o.selected) act = i; }); hl();
   }
-  function hl(){ $$('.combo-opt', list).forEach(function(el, i){ el.classList.toggle('act', i === act); }); var a = list.querySelector('.act'); if (a) a.scrollIntoView({ block: 'nearest' }); }
+  function hl(){ $$('.combo-opt', list).forEach(function(el, i){ el.classList.toggle('act', i === act); }); var a = list.querySelector('.act'); if (a) { if (a.offsetTop < list.scrollTop) list.scrollTop = a.offsetTop; else if (a.offsetTop + a.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = a.offsetTop + a.offsetHeight - list.clientHeight; } }
   function pick(i){
     var o = items[i]; if (!o) return;
     var changed = sel.value !== o.value;
-    sel.value = o.value; api2.label(); api2.close(); btn.focus();
+    sel.value = o.value; api2.label(); api2.close(); try { btn.focus({ preventScroll: true }); } catch (e) { btn.focus(); }
     if (changed) sel.dispatchEvent(new Event('change', { bubbles: true }));
   }
   btn.onclick = function(){ wrap.classList.contains('open') ? api2.close() : api2.open(); };
@@ -60,6 +72,7 @@ function makeCombo(sel){
     else if (e.key === 'Enter') { e.preventDefault(); pick(act < 0 ? 0 : act); }
     else if (e.key === 'Escape') { api2.close(); btn.focus(); }
   };
+  list.onkeydown = function(e){ q.onkeydown(e); };
   list.onmousedown = function(e){ var el = e.target.closest('.combo-opt'); if (el) { e.preventDefault(); pick(+el.dataset.i); } };
   sel.addEventListener('change', api2.label);
   sel._combo = api2;
@@ -319,27 +332,41 @@ function SheetGrid(cfg){
     var anyEdit = cfg.rows.some(function(r){ return r.editable; }) || cfg.canAdd;
     var h = '<div class="sg-bar">' + (anyEdit ? '<span class="small-muted"><i class="bi bi-keyboard"></i> พิมพ์ตัวย่อในช่อง เช่น <b>' + esc(slotL('บ1').s) + '</b>, <b>' + esc(slotL('ช1').s + slotL('ช2').s) + '</b> หรือ <b>' + esc(slotL('บ1').s) + ' V/S</b> · ลบช่องว่าง = ยกเลิกเวร · วางจาก Excel ได้</span>' : '<span class="small-muted"><i class="bi bi-eye"></i> เปิดดูอย่างเดียว</span>') +
       '<span class="ms-auto d-flex gap-2 align-items-center"><span class="sg-cnt" id="sgCnt"></span>' + (anyEdit ? '<button class="btn btn-sm btn-ghost" type="button" id="sgUndo" disabled><i class="bi bi-arrow-counterclockwise"></i> ยกเลิกที่แก้</button><button class="btn btn-sm btn-brand" type="button" id="sgSave" disabled><i class="bi bi-save"></i> บันทึกตาราง</button>' : '') + '</span></div>';
-    h += '<div class="sg-wrap"><table class="sg"><thead><tr><th class="sg-name">ชื่อ-นามสกุล</th>' + dates.map(function(x){ return '<th class="' + dk(x.color) + '" title="' + esc(x.note || '') + '"><div>' + x.d + '</div><small>' + TH_D[x.dow] + '</small></th>'; }).join('') + '<th class="sg-tot">รวม</th></tr></thead><tbody>';
-    var lastG = null;
-    cfg.rows.forEach(function(r, i){
-      if (cfg.groups && r.pid !== lastG) {
-        lastG = r.pid;
-        h += '<tr class="sg-g"><td class="sg-name" colspan="1"><b>' + esc(r.groupName || posName(r.pid)) + '</b></td><td colspan="' + (dates.length + 1) + '">' + (cfg.onAddRow && cfg.canAddPid && cfg.canAddPid(r.pid) ? '<button class="btn btn-sm btn-link py-0" type="button" data-addp="' + r.pid + '"><i class="bi bi-person-plus"></i> เพิ่มบุคลากร</button>' : '') + '</td></tr>';
-      }
-      h += '<tr data-row="' + i + '"><td class="sg-name"><div class="who"><b>' + esc(r.name) + '</b><small>' + esc(r.sub || r.empCode) + '</small></div></td>';
-      dates.forEach(function(x){
-        var v = r.cells[x.d] || '', pend = r.pend && r.pend[x.d];
-        h += '<td class="' + dk(x.color) + (pend ? ' sg-pend' : '') + '">' + (r.editable ? '<input class="sgc" data-r="' + i + '" data-d="' + x.d + '" value="' + esc(v) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(r.name + ' วันที่ ' + x.d) + '">' : '<span class="sgv">' + esc(v) + '</span>') + '</td>';
+    // v1.2569 คอลัมน์ รหัส · ชื่อ-นามสกุล · ตำแหน่ง · สีสถานะการบันทึกเวลา · แถวรวมรายวันท้ายแต่ละตำแหน่ง
+    h += '<div class="sg-wrap"><table class="sg"><thead><tr><th class="sg-code">รหัส</th><th class="sg-name">ชื่อ-นามสกุล</th><th class="sg-hp">ตำแหน่ง</th>' + dates.map(function(x){ return '<th class="' + dk(x.color) + '" title="' + esc(x.note || '') + '"><div>' + x.d + '</div><small>' + TH_D[x.dow] + '</small></th>'; }).join('') + '<th class="sg-tot">รวม</th></tr></thead><tbody>';
+    var groupsOrder = [], byG = {};
+    cfg.rows.forEach(function(r, i){ var g = cfg.groups ? r.pid : '_'; if (!byG[g]) { byG[g] = []; groupsOrder.push(g); } byG[g].push(i); });
+    groupsOrder.forEach(function(g){
+      var idx = byG[g], r0 = cfg.rows[idx[0]];
+      if (cfg.groups) h += '<tr class="sg-g"><td class="sg-code"></td><td class="sg-name"><b>' + esc(r0.groupName || posName(r0.pid)) + '</b></td><td class="sg-hp">' + (r0.status ? statusPill(r0.status) : '') + '</td><td colspan="' + (dates.length + 1) + '">' + (cfg.onAddRow && cfg.canAddPid && cfg.canAddPid(r0.pid) ? '<button class="btn btn-sm btn-link py-0" type="button" data-addp="' + r0.pid + '"><i class="bi bi-person-plus"></i> เพิ่มบุคลากร</button>' : '') + '</td></tr>';
+      idx.forEach(function(i){
+        var r = cfg.rows[i];
+        h += '<tr data-row="' + i + '"><td class="sg-code tnum">' + esc(r.empCode) + '</td><td class="sg-name"><b>' + esc(r.name) + '</b></td><td class="sg-hp">' + esc(r.hrPos || '') + '</td>';
+        dates.forEach(function(x){
+          var v = r.cells[x.d] || '', pend = r.pend && r.pend[x.d], st = r.st && r.st[x.d], rc = v ? recCls(st, r.status) : '';
+          h += '<td class="' + dk(x.color) + (pend ? ' sg-pend' : '') + (rc ? ' ' + rc : '') + '"' + (v ? ' title="' + esc(recTitle(st, r.status)) + '"' : '') + '>' + (r.editable ? '<input class="sgc" data-r="' + i + '" data-d="' + x.d + '" value="' + esc(v) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(r.name + ' วันที่ ' + x.d) + '">' : '<span class="sgv">' + esc(v) + '</span>') + '</td>';
+        });
+        h += '<td class="sg-tot" id="sgt_' + i + '">' + rowTotal(r) + '</td></tr>';
       });
-      h += '<td class="sg-tot" id="sgt_' + i + '">' + rowTotal(r) + '</td></tr>';
+      h += '<tr class="sg-sum" data-g="' + g + '"><td class="sg-code"></td><td class="sg-name">รวมคนขึ้นเวรรายวัน</td><td class="sg-hp"></td>' + dates.map(function(x){ return '<td class="' + dk(x.color) + '" data-sd="' + x.d + '"></td>'; }).join('') + '<td class="sg-tot" data-st="1"></td></tr>';
     });
-    if (!cfg.rows.length) h += '<tr><td colspan="' + (dates.length + 2) + '">' + empty('calendar-x', 'ยังไม่มีผู้ลงเวร') + '</td></tr>';
+    if (!cfg.rows.length) h += '<tr><td colspan="' + (dates.length + 4) + '">' + empty('calendar-x', 'ยังไม่มีผู้ลงเวร') + '</td></tr>';
     h += '</tbody></table></div>';
     if (cfg.onAddRow && !cfg.groups && cfg.canAdd) h += '<div class="mt-2"><button class="btn btn-sm btn-soft" type="button" data-addp=""><i class="bi bi-person-plus"></i> เพิ่มบุคลากรในตาราง</button></div>';
     host.innerHTML = h;
+    G._byG = byG;
     bind();
     count();
+    sums();
   };
+  function sums(){
+    Object.keys(G._byG || {}).forEach(function(g){
+      var tr = host.querySelector('tr.sg-sum[data-g="' + g + '"]'); if (!tr) return;
+      var tot = 0;
+      dates.forEach(function(x){ var n = 0; G._byG[g].forEach(function(i){ var v = cfg.rows[i].cells[x.d]; if (v && !parseCell(v).error && String(v).trim()) n++; }); tot += n; var td = tr.querySelector('[data-sd="' + x.d + '"]'); if (td) td.textContent = n || ''; });
+      var tt = tr.querySelector('[data-st]'); if (tt) tt.textContent = tot;
+    });
+  }
   function rowTotal(r){ var n = 0; Object.keys(r.cells).forEach(function(d){ var p = parseCell(r.cells[d]); if (!p.error) n += p.slots.length; }); return n || ''; }
   function count(){
     var n = Object.keys(G.dirty).length;
@@ -359,7 +386,7 @@ function SheetGrid(cfg){
     else { G.dirty[key] = { row: r, d: d, value: String(val).trim() }; inp.classList.add('dirty'); }
     r.cells[d] = val;
     var t = $('sgt_' + inp.dataset.r); if (t) t.textContent = rowTotal(r);
-    count();
+    count(); sums();
   }
   function bind(){
     cfg.rows.forEach(function(r){ if (!r.orig) { r.orig = {}; for (var k in r.cells) r.orig[k] = r.cells[k]; } });

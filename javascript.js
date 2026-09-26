@@ -1,3 +1,4 @@
+var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-27.1', SMC_BUILD_TH = '27 ก.ย. 2569';
 /* BRAND (ชื่อระบบ โลโก้ สี ประกาศ): อ่านค่าที่แคชไว้ในเครื่องก่อน แล้วขอค่าล่าสุดจาก backend ตอนเริ่มแอป (ดู init ใน help.js) */
 var BRAND = (function(){ try { return JSON.parse(localStorage.getItem('smc_brand') || 'null'); } catch (e) { return null; } })();
 /* ================= แกนหลัก ================= */
@@ -70,6 +71,21 @@ function applyBrand(b){
   if ($('annLogin')) $('annLogin').innerHTML = a;
   if ($('annApp')) $('annApp').innerHTML = a ? '<div class="ann-wrap">' + a + '</div>' : '';
 }
+/* v1.2569 ตรวจว่าหน้าเว็บที่เปิดอยู่เป็นเวอร์ชันล่าสุดหรือไม่ (กันเบราว์เซอร์จำไฟล์เก่า) */
+function checkFrontVersion(){
+  if (viaGas() || !window.fetch || !window.SMC_BUILD) return;
+  fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
+    if (j && j.build && j.build !== SMC_BUILD) updateBar('มีการปรับปรุงระบบเป็นเวอร์ชันใหม่ (' + (j.buildTh || j.build) + ')', true);
+  }).catch(function(){});
+}
+function updateBar(msg, reload){
+  if ($('updBar')) return;
+  var el = document.createElement('div'); el.id = 'updBar'; el.className = 'upd-bar';
+  el.innerHTML = '<i class="bi bi-stars"></i><span>' + esc(msg) + '</span>' + (reload ? '<button type="button" class="btn btn-sm btn-light" onclick="location.replace(location.pathname + \'?v=\' + Date.now())"><i class="bi bi-arrow-clockwise"></i> โหลดเวอร์ชันใหม่</button>' : '') + '<button type="button" class="upd-x" aria-label="ปิด" onclick="this.parentNode.remove()">×</button>';
+  document.body.appendChild(el);
+}
+setInterval(checkFrontVersion, 10 * 60 * 1000);
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) checkFrontVersion(); });
 /** ตัดพื้นที่ว่างสีขาว/โปร่งใสรอบโลโก้ เว้นขอบ 6% */
 function trimLogo(src, cb){
   try {
@@ -100,7 +116,7 @@ function footerHtml(){
   var org = b.org || '';
   var dev = String(b.developer || '').replace(/\s*ฝ่ายทรัพยากรบุคคล\s*$/, '');
   return '<div class="f1">© ' + esc(b.year || '2569') + ' ' + esc(org) + '</div>' +
-    '<div class="f2">' + (dev ? '<span class="nw">พัฒนาโดย' + esc(dev) + '</span>' : '') + ' <span class="nw">' + (b.phone ? '· โทร ' + esc(String(b.phone).replace(/,\s*/g, ', ')) + ' ' : '') + '· v' + esc(String(b.version || '').replace(/\.0$/, '')) + '</span></div>';
+    '<div class="f2">' + (dev ? '<span class="nw">พัฒนาโดย' + esc(dev) + '</span>' : '') + ' <span class="nw">' + (b.phone ? '· โทร ' + esc(String(b.phone).replace(/,\s*/g, ', ')) + ' ' : '') + '· เวอร์ชัน ' + esc(window.SMC_VERSION || b.version || '') + (window.SMC_BUILD_TH ? ' (ปรับปรุง ' + esc(SMC_BUILD_TH) + ')' : '') + '</span></div>';
 }
 function annHtml(){
   var b = BRAND || {};
@@ -228,7 +244,7 @@ function api(action, payload, opt){
     done();
     if (!res) { notify('ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์', 'error'); throw new Error('empty'); }
     if (res.ok) { if (opt.fresh) MEMO[memoKey(action, payload)] = res.data; return res.data; }
-    if (res.error === 'SESSION_EXPIRED') { store('smc_token', null); store('smc_boot', null); S.token = null; notify('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง', 'warning'); showLogin(); throw new Error(res.error); }
+    if (res.error === 'SESSION_EXPIRED') { var was = !!S.token; store('smc_token', null); store('smc_boot', null); S.token = null; if (was && action !== 'logout') { notify('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง', 'warning'); showLogin(); } throw new Error(res.error); }
     var e = errParts(res.error);
     if (!opt.quiet) alertBox(e.title, e.text, 'warning');
     var er = new Error(e.text); er.handled = true; throw er;
@@ -318,7 +334,7 @@ function download(files){
 }
 
 /* ================= เข้าสู่ระบบ ================= */
-function showOnly(id){ ['vLogin','vForce','vApp'].forEach(function(v){ $(v).hidden = v !== id; }); $('actionbar').classList.remove('show'); }
+function showOnly(id){ if (id !== 'vLogin' && window.lgWait) { lgWait(3); setTimeout(function(){ lgWait(0); }, 300); } else if (window.lgWait) lgWait(0); ['vLogin','vForce','vApp'].forEach(function(v){ $(v).hidden = v !== id; }); $('actionbar').classList.remove('show'); }
 var lgClock = null;
 function showLogin(){
   showOnly('vLogin'); applyBrand(BRAND);
@@ -343,12 +359,31 @@ $('fLogin').addEventListener('submit', function(e){
   if (!code) return lgShake($('lgCode'));
   if (!pw) return lgShake($('lgPw'));
   if ($('lgRemember').checked) store('smc_rememberCode', code); else store('smc_rememberCode', null);
-  api('login', { empCode: code, password: pw }, { btn: $('lgBtn'), btnText: 'กำลังเข้าสู่ระบบ' }).then(function(r){
+  lgWait(1);
+  api('login', { empCode: code, password: pw }, { btn: $('lgBtn'), btnText: 'กำลังเข้าสู่ระบบ', quiet: false }).then(function(r){
     S.token = r.token; store('smc_token', r.token); $('lgPw').value = ''; clearInterval(lgClock);
-    $('vLogin').classList.add('lg-out');
-    setTimeout(function(){ $('vLogin').classList.remove('lg-out'); start(true); }, 260);
-  }).catch(function(){ lgShake(); });
+    lgWait(2);
+    start(true);
+  }).catch(function(){ lgWait(0); lgShake(); });
 });
+/* v1.2569 หน้าต่างรอระหว่างเข้าสู่ระบบ: บอกขั้นตอนและเวลาที่รอ ผู้ใช้จะไม่กดซ้ำ */
+var lgT = null, lgT0 = 0;
+function lgWait(step){
+  var w = $('lgWait'); if (!w) return;
+  clearInterval(lgT);
+  if (!step) { w.hidden = true; return; }
+  if (w.hidden) lgT0 = Date.now();
+  w.hidden = false;
+  $('lgWaitT').textContent = step >= 3 ? 'กำลังเปิดหน้าระบบ…' : step === 2 ? 'เข้าสู่ระบบสำเร็จ · กำลังโหลดข้อมูล…' : 'กำลังเข้าสู่ระบบ…';
+  $$('#lgSteps li').forEach(function(li){ var n = +li.dataset.s; li.className = n < step ? 'done' : n === step ? 'on' : ''; });
+  var target = step === 1 ? 45 : step === 2 ? 85 : 100, cur = step === 1 ? 5 : step === 2 ? 50 : 90;
+  $('lgBar').style.width = cur + '%';
+  lgT = setInterval(function(){
+    cur = Math.min(target, cur + (target - cur) * 0.12); $('lgBar').style.width = cur + '%';
+    var sec = Math.round((Date.now() - lgT0) / 1000);
+    $('lgWaitS').textContent = sec >= 6 ? 'เซิร์ฟเวอร์ Google ตอบช้ากว่าปกติ (' + sec + ' วินาที) ระบบยังทำงานอยู่ กรุณารอ ไม่ต้องกดซ้ำ' : 'กรุณารอสักครู่ ไม่ต้องกดซ้ำหรือปิดหน้านี้';
+  }, 400);
+}
 
 /* v1.3.1 เปิดแอปทันทีจากข้อมูลที่จำไว้ในเครื่อง แล้วค่อยตรวจสอบกับเซิร์ฟเวอร์เบื้องหลัง (ไม่ต้องรอหน้าขาว) */
 function bootSig(b){ return JSON.stringify([b.ym, b.me && b.me.roles, b.me && b.me.name, b.canApprove, b.canReview, (b.positions || []).map(function(p){ return p.id; }), b.myPositions || b.posRoles || '']); }
@@ -447,7 +482,9 @@ function showApp(){
   var first = store('smc_page');
   var ok = MENU.filter(function(m){ return m.id === first && m.show && m.show(); }).length;
   go(ok ? first : (isStaffOnly() ? 'my' : 'dashboard'));
+  warnBackendOld();
 }
+function warnBackendOld(){ if (S.backendOld && S.boot && S.boot.me && S.boot.me.roles.indexOf('ADMIN') >= 0) updateBar(S.backendOld, false); }
 
 function go(page){
   S.page = page; store('smc_page', page);
@@ -516,6 +553,17 @@ function dayTypePill(t, color, note){
     return '<span class="dpill dk-' + color + '">' + esc(nm) + '</span>';
   }
   return t === d.HOLIDAY ? '<span class="pill p-brand nodot">วันหยุด</span>' : t === d.CLOSED ? '<span class="pill p-closed nodot">ปิดคลินิก</span>' : '';
+}
+/* v1.2569 สถานะการบันทึกเวลาในตารางเวร: R บันทึกแล้ว · X ต้องแก้ไข · N ถึงวันแล้วแต่ยังไม่บันทึก + สถานะเดือนของตำแหน่ง */
+function recCls(st, ms){
+  if (st === 'X') return 'rc-bad';
+  if (st === 'R') return ms === 'APPROVED' ? 'rc-ap' : ms === 'REVIEWED' ? 'rc-rv' : ms === 'SUBMITTED' ? 'rc-sb' : 'rc-ok';
+  if (st === 'N') return 'rc-miss';
+  return '';
+}
+function recTitle(st, ms){ return st === 'X' ? 'บันทึกแล้ว · มีรายการต้องแก้ไข' : st === 'R' ? (ms === 'APPROVED' ? 'อนุมัติแล้ว' : ms === 'REVIEWED' ? 'ผ่านการตรวจสอบแล้ว' : ms === 'SUBMITTED' ? 'บันทึกแล้ว · ส่งตรวจสอบแล้ว' : 'บันทึกเวลาแล้ว') : st === 'N' ? 'ยังไม่มีบันทึกเวลา' : 'ยังไม่ถึงวัน'; }
+function recLegend(){
+  return '<div class="rc-legend"><span class="rc-t">สถานะในช่อง:</span>' + [['', 'ยังไม่ถึงวัน'], ['rc-miss', 'ยังไม่บันทึกเวลา'], ['rc-ok', 'บันทึกเวลาแล้ว'], ['rc-sb', 'ส่งตรวจสอบแล้ว'], ['rc-rv', 'ผ่านการตรวจสอบ'], ['rc-ap', 'อนุมัติแล้ว'], ['rc-bad', 'ต้องแก้ไข']].map(function(x){ return '<span><i class="rc-sw ' + x[0] + '"></i>' + x[1] + '</span>'; }).join('') + '</div>';
 }
 /** คลาสสีประเภทวัน */
 function dk(color){ return color && color !== 'WORK' ? 'dk-' + color : ''; }

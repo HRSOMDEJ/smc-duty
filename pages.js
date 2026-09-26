@@ -226,11 +226,11 @@ function gridGuard(cb){
 }
 function renderGrid(host, g, reload){
   var rows = [], empty2 = [];
-  var toRow = function(pid, gname, x, manage){ var cells = {}; Object.keys(x.cells).forEach(function(d){ cells[d] = cellText(x.cells[d].slots, x.cells[d].note); }); return { key: pid + '|' + x.empCode, pid: pid, groupName: gname, empCode: x.empCode, name: x.name, sub: x.empCode, cells: cells, pend: x.pend, editable: manage }; };
-  if (g.multi) g.positions.forEach(function(p){ if (!p.people.length) { if (p.manage) empty2.push(p); return; } p.people.forEach(function(x){ rows.push(toRow(p.id, p.name, x, p.manage)); }); });
-  else g.people.forEach(function(x){ rows.push(toRow(g.position.id, g.position.name, x, g.manage)); });
+  var toRow = function(pid, gname, x, manage, status){ var cells = {}; Object.keys(x.cells).forEach(function(d){ cells[d] = cellText(x.cells[d].slots, x.cells[d].note); }); return { key: pid + '|' + x.empCode, pid: pid, groupName: gname, empCode: x.empCode, name: x.name, hrPos: x.hrPos, sub: x.empCode, cells: cells, pend: x.pend, st: x.st, status: status, editable: manage }; };
+  if (g.multi) g.positions.forEach(function(p){ if (!p.people.length) { if (p.manage) empty2.push(p); return; } p.people.forEach(function(x){ rows.push(toRow(p.id, p.name, x, p.manage, p.status)); }); });
+  else g.people.forEach(function(x){ rows.push(toRow(g.position.id, g.position.name, x, g.manage, g.status)); });
   var posManage = {}; if (g.multi) g.positions.forEach(function(p){ posManage[p.id] = p.manage; }); else posManage[g.position.id] = g.manage;
-  var legend = '<div class="d-flex flex-wrap gap-3 align-items-center mt-2">' + dayLegend() + '<span class="small-muted"><span class="sg-pend-demo"></span> รออนุมัติ</span></div>' + legendHtml(g.multi ? null : g.position);
+  var legend = '<div class="d-flex flex-wrap gap-3 align-items-center mt-2">' + recLegend() + '</div><div class="d-flex flex-wrap gap-3 align-items-center mt-2">' + dayLegend() + '<span class="small-muted"><span class="sg-pend-demo"></span> รออนุมัติ</span></div>' + legendHtml(g.multi ? null : g.position);
   $(host).innerHTML = '<div id="' + host + 'In"></div>' + (empty2.length ? '<div class="small-muted mt-2"><i class="bi bi-inbox"></i> ยังไม่มีผู้ลงเวร: ' + empty2.map(function(p){ return '<a href="#" class="me-2" onclick="gridAdd(\'' + p.id + '\');return false"><i class="bi bi-person-plus"></i> ' + esc(p.name) + '</a>'; }).join('') + '</div>' : '') + legend;
   S._grid = g; S._gridReload = reload;
   GRID = SheetGrid({ host: host + 'In', dates: g.dates, rows: rows, groups: !!g.multi, canAdd: !g.multi && g.manage,
@@ -246,7 +246,7 @@ function gridAdd(pid){
       var code = $('gaEmp').value; if (!code) { notify('กรุณาเลือกบุคลากร', 'info'); return false; }
       var e = list.filter(function(x){ return x.empCode === code; })[0];
       var rows = GRID.cfg.rows, idx = -1; rows.forEach(function(r, i){ if (r.pid === pid) idx = i; });
-      var nr = { key: pid + '|' + code, pid: pid, groupName: posName(pid), empCode: code, name: e.name, sub: code, cells: {}, pend: {}, editable: true, orig: {} };
+      var nr = { key: pid + '|' + code, pid: pid, groupName: posName(pid), empCode: code, name: e.name, hrPos: String(e.hrPosition || '').replace(/\s*\(\d+\)\s*$/, ''), sub: code, cells: {}, pend: {}, st: {}, editable: true, orig: {} };
       if (idx < 0) rows.push(nr); else rows.splice(idx + 1, 0, nr);
       GRID.render();
       setTimeout(function(){ var c = document.querySelector('.sgc[data-r="' + rows.indexOf(nr) + '"]'); if (c) c.focus(); }, 50);
@@ -356,13 +356,10 @@ function renderBoardAll(b){
     h += '<div class="card mb-3"><div class="card-h">' + (p.canApprove && p.pending ? '<input class="form-check-input ba-sel" type="checkbox" data-id="' + p.id + '" checked aria-label="เลือกอนุมัติ ' + esc(p.name) + '">' : '') +
       '<h3><a href="#" onclick="setSel(\'bkPos\',\'' + p.id + '\');$(\'bkPos\').dispatchEvent(new Event(\'change\'));return false">' + esc(p.name) + '</a></h3><span class="sub">' + esc(p.groupName) + '</span>' +
       '<span class="ms-auto d-flex gap-2"><span class="pill p-warn nodot">รออนุมัติ ' + p.pending + '</span><span class="pill p-ok nodot">อนุมัติแล้ว ' + p.approved + '</span></span></div>';
-    h += '<div class="tbl border-0 shadow-none" style="border-radius:0 0 16px 16px"><table class="table table-bordered matrix"><thead><tr><th class="nm">ชื่อ-นามสกุล</th>' +
-      b.dates.map(function(x){ return '<th class="' + dk(x.color) + '">' + x.d + '<br>' + TH_D[x.dow] + '</th>'; }).join('') + '<th>รวม</th></tr></thead><tbody>';
-    p.people.forEach(function(x){ h += '<tr><td class="nm">' + esc(x.name) + '</td>' + b.dates.map(function(dd){ var v = x.days[dd.d] || ''; return '<td class="' + dk(dd.color) + (v.indexOf('*') >= 0 ? ' pendc' : '') + '">' + esc(lbl(v)) + '</td>'; }).join('') + '<td class="fw-bold">' + x.n + '</td></tr>'; });
-    h += '</tbody></table></div></div>';
+    h += schedMatrix(p, b.dates, p.people) + '</div>';
   });
   if (!b.positions.length) h += empty('calendar-x', 'ท่านยังไม่ได้รับสิทธิ์ดูแลตารางเวรของตำแหน่งใด');
-  else h += legendHtml();
+  else h += recLegend() + legendHtml();
   $('bkBody').innerHTML = h;
 }
 function openBkPos(pid){ setSel('bkPos', pid); $('bkPos').dispatchEvent(new Event('change')); window.scrollTo({ top: 0, behavior: 'smooth' }); }
@@ -401,31 +398,50 @@ function approveAll(btn){
 /* ================= ตารางเวรรวม ================= */
 PAGES.overview = function(){
   S.ovMode = S.ovMode || store('smc_ovMode') || 'card';
-  mount(pageHead('งานของฉัน', 'ตารางเวรรวม', 'ภาพรวมตารางเวรของทุกตำแหน่งในเดือนที่เลือก · สลับเป็น "แบบ Google Sheet" เพื่อดูต่อเนื่องในตารางเดียวและแก้ไขตำแหน่งที่ท่านดูแลได้') + '<div class="filters">' + ymSelect('ovYm', S.ym, 6, 2) +
-    '<div><label class="form-label">มุมมอง</label><div class="seg" id="ovMode"><button data-v="card"' + (S.ovMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-view-stacked"></i> แยกตามตำแหน่ง</button><button data-v="sheet"' + (S.ovMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' +
-    '<div id="ovQBox"><label class="form-label" for="ovQ">ค้นหาชื่อ / ตำแหน่ง</label><input class="form-control" id="ovQ" placeholder="พิมพ์ชื่อบุคลากรหรือตำแหน่ง"></div></div><div id="ovBody">' + skeleton(6) + '</div>');
+  mount(pageHead('งานของฉัน', 'ตารางเวรรวม', 'ภาพรวมตารางเวรทุกตำแหน่งในเดือนที่เลือก พร้อมสถานะการบันทึกเวลาในแต่ละช่อง · สลับเป็น "แบบ Google Sheet" เพื่อแก้ไขตำแหน่งที่ท่านดูแล') + '<div class="filters">' + ymSelect('ovYm', S.ym, 6, 2) +
+    '<div><label class="form-label" for="ovPos">ตำแหน่ง</label><select class="form-select" data-search id="ovPos"><option value="all">ทุกตำแหน่ง</option>' + S.boot.positions.map(function(p){ return '<option value="' + p.id + '" data-sub="' + esc(p.groupName || '') + '"' + (S.ovPid === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
+    '<div><label class="form-label">มุมมอง</label><div class="seg" id="ovMode"><button type="button" data-v="card"' + (S.ovMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-view-stacked"></i> แยกตามตำแหน่ง</button><button type="button" data-v="sheet"' + (S.ovMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' +
+    '<div id="ovQBox"><label class="form-label" for="ovQ">ค้นหาชื่อ / รหัส</label><input class="form-control" id="ovQ" placeholder="ชื่อ หรือรหัสเจ้าหน้าที่"></div></div><div id="ovBody">' + skeleton(6) + '</div>');
   $('ovYm').onchange = function(){ var el = this; gridGuard(function(){ S.ym = el.value; loadOv(); }); };
+  $('ovPos').onchange = function(){ var el = this; gridGuard(function(){ S.ovPid = el.value; S.ovMode === 'sheet' ? loadOv() : drawOv(); }); };
   $('ovQ').oninput = function(){ if (S._ov) drawOv(); };
   $$('#ovMode button').forEach(function(b){ b.onclick = function(){ gridGuard(function(){ $$('#ovMode button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); S.ovMode = b.dataset.v; store('smc_ovMode', S.ovMode); loadOv(); }); }; });
   loadOv();
 };
 function loadOv(){
   $('ovQBox').hidden = S.ovMode === 'sheet';
-  if (S.ovMode === 'sheet') return api('getScheduleGrid', { ym: $('ovYm').value, positionId: 'all', scope: 'all' }).then(function(g){ $('ovBody').innerHTML = demoBanner(g.ym) + '<div id="ovGrid"></div>'; renderGrid('ovGrid', g, loadOv); }).catch(function(){});
+  var pid = $('ovPos').value || 'all';
+  if (S.ovMode === 'sheet') return api('getScheduleGrid', { ym: $('ovYm').value, positionId: pid, scope: 'all' }).then(function(g){ $('ovBody').innerHTML = demoBanner(g.ym) + '<div id="ovGrid"></div>'; renderGrid('ovGrid', g, loadOv); }).catch(function(){});
   api('getScheduleOverview', { ym: $('ovYm').value }, { fresh: true, onCache: function(d){ S._ov = d; drawOv(); } }).then(function(d){ S._ov = d; drawOv(); }).catch(function(){});
 }
-function drawOv(){
-  var d = S._ov, D = S.boot.dayTypes, h = '', q = $('ovQ').value.trim().toLowerCase();
-  d.positions.forEach(function(p){
-    var pm = !q || p.name.toLowerCase().indexOf(q) >= 0;
-    var people = p.people.filter(function(x){ return pm || (x.name + ' ' + x.empCode).toLowerCase().indexOf(q) >= 0; });
-    if (!people.length) return;
-    h += '<div class="card mb-3"><div class="card-h"><h3>' + esc(p.name) + '</h3><span class="sub">' + people.length + ' คน</span></div><div class="tbl border-0 shadow-none" style="border-radius:0 0 16px 16px"><table class="table table-bordered matrix"><thead><tr><th class="nm">ชื่อ-นามสกุล</th>' +
-      d.dates.map(function(x){ return '<th class="' + dk(x.color) + '" title="' + esc(x.note || '') + '">' + x.d + '<br>' + TH_D[x.dow] + '</th>'; }).join('') + '</tr></thead><tbody>';
-    people.forEach(function(x){ h += '<tr><td class="nm">' + esc(x.name) + '</td>' + d.dates.map(function(dd){ var v = x.days[dd.d] || ''; return '<td class="' + dk(dd.color) + (v.indexOf('*') >= 0 ? ' pendc' : '') + '">' + esc(lbl(v)) + '</td>'; }).join('') + '</tr>'; });
-    h += '</tbody></table></div></div>';
+/** ตารางเวรแบบเมทริกซ์ (ใช้ร่วม: ตารางเวรรวม / ลงตารางเวรทุกตาราง) · รหัส ชื่อ ตำแหน่ง · สีสถานะบันทึก · รวมรายคน/รายวัน */
+function schedMatrix(p, dates, people, opt){
+  opt = opt || {};
+  var h = '<div class="tbl border-0 shadow-none mx-wrap" style="border-radius:0 0 16px 16px"><table class="table table-bordered matrix mx"><thead><tr><th class="cd">รหัส</th><th class="nm">ชื่อ-นามสกุล</th><th class="hp">ตำแหน่ง</th>' +
+    dates.map(function(x){ return '<th class="' + dk(x.color) + '" title="' + esc(x.note || '') + '">' + x.d + '<br>' + TH_D[x.dow] + '</th>'; }).join('') + '<th class="tt">รวม</th></tr></thead><tbody>';
+  var daily = {};
+  people.forEach(function(x){
+    var n = 0;
+    h += '<tr><td class="cd tnum">' + esc(x.empCode) + '</td><td class="nm">' + esc(x.name) + '</td><td class="hp">' + esc(x.hrPos || '') + '</td>' + dates.map(function(dd){
+      var v = x.days[dd.d] || '', st = x.st ? x.st[dd.d] : '';
+      if (v) { var k = lbl(v).replace(/\*/g, ''); var c = (k.match(/[^\s,]/g) ? String(v).split(',').length : 0); n += c || 1; daily[dd.d] = (daily[dd.d] || 0) + 1; }
+      var rc = v ? recCls(st, p.status) : '';
+      return '<td class="' + dk(dd.color) + (v.indexOf('*') >= 0 ? ' pendc' : '') + (rc ? ' ' + rc : '') + '"' + (v ? ' title="' + esc(recTitle(st, p.status)) + '"' : '') + '>' + esc(lbl(v)) + '</td>';
+    }).join('') + '<td class="tt">' + (x.n != null ? x.n : n) + '</td></tr>';
   });
-  $('ovBody').innerHTML = demoBanner(d.ym) + (h ? h + '<div class="d-flex flex-wrap gap-3">' + dayLegend() + '</div>' + legendHtml() : '') + (h ? '' : empty('calendar-x', q ? 'ไม่พบข้อมูลตามคำค้นหา' : 'ยังไม่มีตารางเวรในเดือนนี้'));
+  var tot = 0;
+  h += '</tbody><tfoot><tr><td class="cd"></td><td class="nm">รวมคนขึ้นเวรรายวัน</td><td class="hp"></td>' + dates.map(function(dd){ var v = daily[dd.d] || 0; tot += v; return '<td class="' + dk(dd.color) + '">' + (v || '') + '</td>'; }).join('') + '<td class="tt">' + tot + '</td></tr></tfoot></table></div>';
+  return h;
+}
+function drawOv(){
+  var d = S._ov, h = '', q = ($('ovQ').value || '').trim().toLowerCase(), pf = $('ovPos').value || 'all';
+  d.positions.forEach(function(p){
+    if (pf !== 'all' && p.id !== pf) return;
+    var people = p.people.filter(function(x){ return !q || (x.name + ' ' + x.empCode + ' ' + (x.hrPos || '')).toLowerCase().indexOf(q) >= 0; });
+    if (!people.length) return;
+    h += '<div class="card mb-3"><div class="card-h"><h3>' + esc(p.name) + '</h3><span class="sub">' + people.length + ' คน</span><span class="ms-auto">' + statusPill(p.status) + '</span></div>' + schedMatrix(p, d.dates, people) + '</div>';
+  });
+  $('ovBody').innerHTML = demoBanner(d.ym) + (h ? '<div class="d-flex flex-wrap gap-3 mb-2">' + recLegend() + '</div>' + h + '<div class="d-flex flex-wrap gap-3">' + dayLegend() + '</div>' + legendHtml() : empty('calendar-x', q ? 'ไม่พบข้อมูลตามคำค้นหา' : pf !== 'all' ? 'ตำแหน่งนี้ยังไม่มีตารางเวรในเดือนนี้' : 'ยังไม่มีตารางเวรในเดือนนี้'));
 }
 
 /* ================= บันทึกเวลาปฏิบัติงาน ================= */
