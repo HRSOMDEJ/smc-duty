@@ -255,7 +255,7 @@ function drawUsers(){
 function userModal(code){
   if (!code) return alertBox('ยังไม่ได้ระบุรหัส', 'กรุณาระบุรหัสเจ้าหน้าที่', 'warning');
   var u = S._us.filter(function(x){ return x.empCode === code; })[0] || { empCode: code, name: '', roles: ['STAFF'], groups: [], active: true };
-  var roles = [['ENTRY', 'บันทึกเวลาจากใบลงชื่อ ส่งตรวจสอบ พิมพ์ใบลงชื่อ'], ['REVIEWER', 'อนุมัติตารางเวร ตรวจสอบผ่าน/ส่งกลับแก้ไข'], ['COORD', 'ปฏิทิน กรอบเวร ช่วงเวลา ส่งออก HRMi'], ['MANAGER', 'อนุมัติรายเดือน (ล็อกข้อมูล) ย้อนสถานะ'], ['ADMIN', 'ดำเนินการได้ทุกเมนู จัดการผู้ใช้งาน ตั้งค่าระบบ']];
+  var roles = [['ENTRY', 'บันทึกเวลาจากใบลงชื่อ ส่งตรวจสอบ พิมพ์ใบลงชื่อ ส่งออก HRMi (ตำแหน่งที่ดูแล)'], ['REVIEWER', 'อนุมัติตารางเวร ตรวจสอบผ่าน/ส่งกลับแก้ไข'], ['COORD', 'ปฏิทิน กรอบเวร ช่วงเวลา ส่งออก HRMi'], ['MANAGER', 'อนุมัติรายเดือน (ล็อกข้อมูล) ย้อนสถานะ'], ['ADMIN', 'ดำเนินการได้ทุกเมนู จัดการผู้ใช้งาน ตั้งค่าระบบ']];
   var body = '<div class="d-flex gap-2 align-items-center mb-3"><div class="avatar">' + esc(initials(u.name || code)) + '</div><div><b>' + esc(u.name || code) + '</b><div class="small-muted">' + code + '</div></div></div><div class="form-label">บทบาท</div>' +
     roles.map(function(r){ return '<div class="form-check mb-1"><input class="form-check-input" type="checkbox" data-ro="' + r[0] + '" id="ro' + r[0] + '"' + (u.roles.indexOf(r[0]) >= 0 ? ' checked' : '') + '><label class="form-check-label" for="ro' + r[0] + '"><b>' + esc(S.boot.roles[r[0]]) + '</b> <span class="small-muted">' + r[1] + '</span></label></div>'; }).join('') +
     '<div class="form-label mt-3">กลุ่มตำแหน่งที่รับผิดชอบ (สำหรับผู้บันทึกข้อมูลและหัวหน้างาน)</div><div class="border rounded-3 p-2" style="max-height:200px;overflow:auto">' +

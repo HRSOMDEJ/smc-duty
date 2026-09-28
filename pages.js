@@ -1352,8 +1352,12 @@ PAGES.export = function(){
     '<div class="small-muted mt-2">ตัวอย่าง: กรอบพยาบาลเดือนนี้สูงสุด 7 คน → ได้ใบที่ 1–7 · วันที่กรอบน้อยกว่า (เช่น 5 คน) ใบที่ 6–7 ของวันนั้นเป็นช่องสีเทาทึบ ห้ามลงชื่อ · วันปิดคลินิกทึบทั้งแถว</div></div></div></div>';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-warn"><i class="bi bi-paperclip"></i></div><div><h3>ใบลืมสแกนรวมเล่ม</h3><div class="sub">รวมไฟล์แนบทั้งเดือนเป็น PDF ไฟล์เดียว พร้อมหัวกระดาษระบุรายการ</div></div></div><div class="card-b">' + posSelect('exAttPos', ids, 'all', true) +
     '<div class="mt-3"><button class="btn btn-brand" onclick="printAttachments($(\'exYm\').value,$(\'exAttPos\').value)"><i class="bi bi-printer"></i> รวมเป็น PDF และดาวน์โหลด</button></div><div class="small-muted mt-2">เรียงตามตำแหน่งและวันที่ · ไฟล์รูปและ PDF รวมอยู่ในเล่มเดียว</div></div></div></div>';
-  if (has('COORD')) {
+  // 28 ก.ย. 69: ผู้บันทึกข้อมูลส่งออก HRMi ได้ (เฉพาะตำแหน่งที่ตนดูแล) · ประสานงาน/แอดมิน ทุกตำแหน่ง
+  if (has('COORD') || has('ENTRY')) {
+    var hrIds = has('COORD') ? S.boot.positions.filter(function(p){ return p.paid !== false; }).map(function(p){ return p.id; }) : posIdsFor(['ENTRY']).filter(function(id){ var p = posOf(id); return p && p.paid !== false; });
     h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-ok"><i class="bi bi-database-up"></i></div><div><h3>ไฟล์นำเข้า HRMi</h3><div class="sub">ส่งออกได้เฉพาะตำแหน่งที่อนุมัติแล้ว · นำเข้า HRMi ภายในวันที่ 4 ของเดือนถัดไป</div></div></div><div class="card-b">' +
+      posSelect('hrPos', hrIds, 'all', true, has('COORD') ? 'ทุกตำแหน่ง' : 'ทุกตำแหน่งที่ท่านดูแล') +
+      '<div class="mt-2"></div>' +
       '<div class="row g-2"><div class="col-sm-6"><label class="form-label" for="hrType">ประเภท</label><select class="form-select" id="hrType"><option value="all">ค่าเวรและค่า OT</option><option value="duty">ค่าเวร</option><option value="ot">ค่า OT</option></select></div>' +
       '<div class="col-sm-6"><label class="form-label" for="hrMode">รูปแบบไฟล์</label><select class="form-select" id="hrMode"><option value="combined">ไฟล์เดียว (1 ชีทต่อรหัสรายได้)</option><option value="split">แยกไฟล์ตามรหัสรายได้</option><option value="zip">ZIP (แยกไฟล์รวมในไฟล์เดียว)</option></select></div></div>' +
       '<div class="mt-3"><button class="btn btn-brand" onclick="exHRMi(this)"><i class="bi bi-download"></i> ดาวน์โหลดไฟล์ HRMi</button></div><div id="hrRes" class="small-muted mt-2"></div></div></div></div>';
@@ -1436,7 +1440,8 @@ function savePosSigners(btn){
   api('savePosSigners', { items: changed }, { btn: btn }).then(function(d){ S._ps = d; drawPosSigners(); notify('บันทึกผู้ตรวจสอบ ' + changed.length + ' ตำแหน่งเรียบร้อย'); }).catch(function(){});
 }
 function exHRMi(btn){
-  api('exportHRMi', { ym: $('exYm').value, type: $('hrType').value, mode: $('hrMode').value }, { btn: btn, block: 'กำลังจัดทำไฟล์ HRMi…' }).then(function(r){
+  var hp = $('hrPos') ? $('hrPos').value : 'all';
+  api('exportHRMi', { ym: $('exYm').value, type: $('hrType').value, mode: $('hrMode').value, positionIds: hp && hp !== 'all' ? [hp] : [] }, { btn: btn, block: 'กำลังจัดทำไฟล์ HRMi…' }).then(function(r){
     download(r.files);
     $('hrRes').innerHTML = 'รหัสรายได้: ' + esc(r.codes.join(', ')) + (r.notApproved.length ? '<div class="text-danger">ยังไม่อนุมัติ (ไม่รวมในไฟล์): ' + esc(r.notApproved.join(', ')) + '</div>' : '');
   }).catch(function(){});

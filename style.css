@@ -705,3 +705,6 @@ tr.cal-row.dk-WEEKEND td,tr.sheet-empty.dk-WEEKEND td{background:var(--d-weekend
   .hm-t td.nm,.hm-t th.nm{min-width:118px;max-width:130px;overflow:hidden;text-overflow:ellipsis;font-size:12px}
   .mx td.nm,.mx th.nm{left:0;min-width:108px;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;box-shadow:2px 0 4px rgba(0,0,0,.06)}
 }
+
+/* 28 ก.ย. 69: ท้ายหน้าบนมือถือจอแคบ ให้ข้อความตัดบรรทัดได้ (กันล้นจอ 1–2 px) */
+@media (max-width:420px){ .f2 .nw{white-space:normal} }
