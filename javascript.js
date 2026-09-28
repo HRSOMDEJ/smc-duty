@@ -1,4 +1,4 @@
-var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-28.3', SMC_BUILD_TH = '28 ก.ย. 2569';
+var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-28.4', SMC_BUILD_TH = '28 ก.ย. 2569';
 /* BRAND (ชื่อระบบ โลโก้ สี ประกาศ): อ่านค่าที่แคชไว้ในเครื่องก่อน แล้วขอค่าล่าสุดจาก backend ตอนเริ่มแอป (ดู init ใน help.js) */
 var BRAND = (function(){ try { return JSON.parse(localStorage.getItem('smc_brand') || 'null'); } catch (e) { return null; } })();
 /* ================= แกนหลัก ================= */
@@ -229,13 +229,35 @@ function slowHint(on){
   el.classList.toggle('show', SLOWN > 0);
 }
 /** แคชในหน่วยความจำ (เปิดหน้าเดิมซ้ำแสดงผลทันที แล้วค่อยโหลดข้อมูลล่าสุดมาแทน) */
-var MEMO = {};
+var MEMO = {}, MEMO_T = {};
 function memoKey(action, payload){ return action + '|' + JSON.stringify(payload || {}); }
-function memoClear(){ MEMO = {}; }
+function memoClear(){ MEMO = {}; MEMO_T = {}; }
+/* 28 ก.ย. 69 แคชในเครื่อง (localStorage) ของหน้าที่เปิดบ่อย: เปิดระบบ/รีเฟรชแล้วเห็นข้อมูลล่าสุดที่เคยโหลดทันที แล้วค่อยอัปเดต
+ * แยกตามผู้ใช้ · ล้างทั้งหมดเมื่อบันทึกข้อมูลใดๆ หรือออกจากระบบ · ข้อมูลใหญ่เกิน 400 KB ไม่เก็บ */
+var PC_PRE = 'smc_c:', PC_MAX = 12;
+function pcUser(){ return (S.boot && S.boot.me && S.boot.me.empCode) || ''; }
+function pcKey(mk){ return PC_PRE + pcUser() + ':' + mk; }
+function pcGet(mk){ if (!pcUser()) return null; try { var v = localStorage.getItem(pcKey(mk)); return v ? JSON.parse(v).d : null; } catch (e) { return null; } }
+function pcSet(mk, d){
+  if (!pcUser()) return;
+  try {
+    var s = JSON.stringify({ t: Date.now(), d: d }); if (s.length > 400000) return;
+    localStorage.setItem(pcKey(mk), s);
+    var idx = JSON.parse(localStorage.getItem(PC_PRE + 'idx') || '[]').filter(function(k){ return k !== pcKey(mk); }); idx.push(pcKey(mk));
+    while (idx.length > PC_MAX) localStorage.removeItem(idx.shift());
+    localStorage.setItem(PC_PRE + 'idx', JSON.stringify(idx));
+  } catch (e) { pcClear(); }
+}
+function pcClear(){ try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf(PC_PRE) === 0) localStorage.removeItem(k); }); } catch (e) { } }
 function api(action, payload, opt){
   opt = opt || {};
-  if (opt.fresh && opt.onCache) { var mk = memoKey(action, payload); if (MEMO[mk]) { try { opt.onCache(MEMO[mk]); } catch (e) { } } }
-  if (!/^(get|list|bootstrap|branding|ping|suggest)/.test(action)) memoClear();   // เขียนข้อมูล → ล้างแคช
+  if (opt.fresh && opt.onCache) {
+    var mk = memoKey(action, payload), cd = MEMO[mk] || pcGet(mk);
+    if (cd) { try { opt.onCache(cd); } catch (e) { } }
+    // ข้อมูลที่เพิ่งได้มาไม่เกิน 20 วินาที (เช่น ที่ได้มาพร้อมการเข้าสู่ระบบ) ใช้ได้เลย ไม่ต้องถามเซิร์ฟเวอร์ซ้ำ
+    if (MEMO[mk] && MEMO_T[mk] && Date.now() - MEMO_T[mk] < 20000) return Promise.resolve(MEMO[mk]);
+  }
+  if (!/^(get|list|bootstrap|branding|ping|suggest|login)/.test(action)) { memoClear(); pcClear(); }   // เขียนข้อมูล → ล้างแคช
   progress(true);
   if (opt.btn) btnBusy(opt.btn, true, opt.btnText);
   if (opt.block) blocking(opt.block);
@@ -243,7 +265,7 @@ function api(action, payload, opt){
   return rawCall(action, payload, opt.timeout).then(function(res){
     done();
     if (!res) { notify('ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์', 'error'); throw new Error('empty'); }
-    if (res.ok) { if (opt.fresh) MEMO[memoKey(action, payload)] = res.data; return res.data; }
+    if (res.ok) { if (opt.fresh) { var k2 = memoKey(action, payload); MEMO[k2] = res.data; MEMO_T[k2] = Date.now(); pcSet(k2, res.data); } return res.data; }
     if (res.error === 'SESSION_EXPIRED') { var was = !!S.token; store('smc_token', null); store('smc_boot', null); S.token = null; if (was && action !== 'logout') { notify('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง', 'warning'); showLogin(); } throw new Error(res.error); }
     var e = errParts(res.error);
     if (!opt.quiet) alertBox(e.title, e.text, 'warning');
@@ -360,10 +382,17 @@ $('fLogin').addEventListener('submit', function(e){
   if (!pw) return lgShake($('lgPw'));
   if ($('lgRemember').checked) store('smc_rememberCode', code); else store('smc_rememberCode', null);
   lgWait(1);
-  api('login', { empCode: code, password: pw }, { btn: $('lgBtn'), btnText: 'กำลังเข้าสู่ระบบ', quiet: false }).then(function(r){
+  api('login', { empCode: code, password: pw, withBoot: true }, { btn: $('lgBtn'), btnText: 'กำลังเข้าสู่ระบบ', quiet: false }).then(function(r){
     S.token = r.token; store('smc_token', r.token); $('lgPw').value = ''; clearInterval(lgClock);
-    lgWait(2);
-    start(true);
+    // 28 ก.ย. 69: เซิร์ฟเวอร์ส่งสิทธิ์ + ข้อมูลหน้าแรกมาพร้อมการเข้าสู่ระบบ (1 รอบแทน 3 รอบ) · ระบบหลังบ้านรุ่นเก่า → ทำแบบเดิม
+    if (!r.boot) { lgWait(2); return start(true); }
+    lgWait(3);
+    var b = r.boot; S.boot = b; S.ym = b.ym;
+    try { store('smc_boot', JSON.stringify({ t: S.token.slice(-16), b: b })); } catch (e) { }
+    if (r.first) { var fk = memoKey(r.first.action, r.first.payload); MEMO[fk] = r.first.data; MEMO_T[fk] = Date.now(); pcSet(fk, r.first.data); }
+    if (b.me.mustChange || !b.me.hasPhone) return showForce();
+    showApp();
+    notify('ยินดีต้อนรับ ' + b.me.name.split(' ').slice(0, 2).join(' '));
   }).catch(function(){ lgWait(0); lgShake(); });
 });
 /* v1.2569 หน้าต่างรอระหว่างเข้าสู่ระบบ: บอกขั้นตอนและเวลาที่รอ ผู้ใช้จะไม่กดซ้ำ */
@@ -422,7 +451,7 @@ $('fPhone').addEventListener('submit', function(e){
   api('updatePhone', { phone: $('phNew').value }, { btn: e.submitter }).then(function(me){ S.boot.me = me; notify('บันทึกหมายเลขโทรศัพท์เรียบร้อย'); showApp(); }).catch(function(){});
 });
 
-function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); store('smc_token', null); store('smc_boot', null); S.token = null; S.boot = null; showLogin(); }
+function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); pcClear(); store('smc_token', null); store('smc_boot', null); S.token = null; S.boot = null; showLogin(); }
 
 function openAccount(){
   var me = S.boot.me;

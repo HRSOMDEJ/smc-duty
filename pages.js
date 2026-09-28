@@ -23,7 +23,7 @@ function dbPane(){
   loadDash();
 }
 function loadDash(){
-  api('getDashboard', { ym: S.ym }).then(function(d){ S._dash = d; drawDash(); }).catch(function(){});
+  api('getDashboard', { ym: S.ym }, { fresh: true, onCache: function(d){ if (d.ym && d.ym !== S.ym) return; S._dash = d; drawDash(); } }).then(function(d){ if (d.ym && d.ym !== S.ym) return; S._dash = d; drawDash(); }).catch(function(){});
 }
 function drawDash(){
   var d = S._dash; if (!d || !$('dbBody')) return;
@@ -147,7 +147,11 @@ function myPane(){
   loadMy();
 }
 function loadMy(){
-  api('getMyMonth', { ym: S.ym }).then(function(d){
+  api('getMyMonth', { ym: S.ym }, { fresh: true, onCache: drawMy }).then(drawMy).catch(function(){});
+}
+function drawMy(d){
+  if (!d || (d.ym && d.ym !== S.ym)) return;
+  {
     var t = d.totals;
     var h = demoBanner(S.ym) + '<div class="kpis">' + kpi('calendar-check', 'ic-info', 'จำนวนเวร', t.shifts) + kpi('hourglass-split', 'ic-violet', 'OT (ชั่วโมง)', t.ot, 1) + kpi('wallet2', 'ic-brand', 'ค่าเวร (บาท)', t.duty, 2) + kpi('cash-stack', 'ic-ok', 'ค่า OT (บาท)', t.otAmt, 2) + '</div>';
     h += '<div class="card mb-3"><div class="card-h"><h3><i class="bi bi-calendar2-week text-danger"></i> ตารางเวรที่ลงไว้</h3><span class="sub">กรอบเส้นประ = รออนุมัติ</span></div><div class="card-b">';
@@ -160,9 +164,10 @@ function loadMy(){
     });
     if (!d.records.length) h += '<tr><td colspan="8">' + empty('journal', 'ยังไม่มีรายการในเดือนนี้') + '</td></tr>';
     h += '</tbody><tfoot><tr><td colspan="8">' + legendHtml() + '</td></tr></tfoot><tbody>';
+    if (!$('myBody')) return;
     $('myBody').innerHTML = h + '</tbody></table></div></div>';
     animateKpis();
-  }).catch(function(){});
+  }
 }
 
 /* ---------- ไฟล์แนบ ---------- */
