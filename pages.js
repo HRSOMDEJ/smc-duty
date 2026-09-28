@@ -1335,7 +1335,7 @@ PAGES.export = function(){
   var ids = posIdsFor(['ENTRY', 'REVIEWER', 'COORD', 'MANAGER']);
   var xl = S.boot.canExcel;
   var h = pageHead('งานประจำเดือน', 'จัดพิมพ์และส่งออกเอกสาร', 'เอกสารจะดาวน์โหลดลงเครื่องของท่านทันที และระบบเก็บสำเนาทุกฉบับไว้ในคลังเอกสาร (Google Drive) โดยไม่เขียนทับฉบับเดิม') +
-    '<div class="filters">' + ymSelect('exYm', S.ym, 14, 0, 'รอบเดือน') + '</div><div id="exDemo"></div><div class="row g-3">';
+    '<div class="filters">' + ymSelect('exYm', S.ym, 14, 2, 'รอบเดือน') + '</div><div id="exDemo"></div><div class="row g-3">';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-brand"><i class="bi bi-table"></i></div><div><h3>ตารางเวรและตาราง OT</h3><div class="sub">รูปแบบเดียวกับเอกสารแนบเบิก มีช่องลงนามผู้ตรวจสอบและผู้รับรอง</div></div></div><div class="card-b">' +
     posSelect('exPos', ids, 'all', true) +
     '<div class="mt-2"><label class="form-label">ประเภทเอกสาร</label><div class="seg w-100" id="exDoc"><button type="button" data-v="duty">ตารางเวร</button><button type="button" data-v="ot">ตาราง OT</button><button type="button" data-v="both" class="on">ทั้งสองแบบ</button></div></div>' +
@@ -1368,7 +1368,8 @@ PAGES.export = function(){
   var syncSheets = function(){ $('exSheetsBox').hidden = ($('exSignPos').value || 'all') === 'all'; };
   $('exSignPos').addEventListener('change', syncSheets); syncSheets();
   $$('#exSignMode button').forEach(function(b){ b.onclick = function(){ $$('#exSignMode button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); }; });
-  $('exYm').onchange = function(){ S.ym = this.value; $('exDemo').innerHTML = demoBanner(S.ym); };
+  // 28 ก.ย. 69: เลือกเดือนล่วงหน้าได้ (พิมพ์ใบลงชื่อไปให้ลงชื่อระหว่างเดือน) · ไม่เปลี่ยนเดือนของหน้าอื่นเป็นเดือนอนาคต
+  $('exYm').onchange = function(){ if (this.value <= S.boot.ym) S.ym = this.value; $('exDemo').innerHTML = demoBanner(this.value) + (this.value > S.boot.ym ? '<div class="alert alert-info py-2 small mb-3"><i class="bi bi-calendar-plus"></i> เดือนล่วงหน้า: ใบลงชื่อใส่รายชื่อตามตารางเวรที่ลงไว้ขณะนี้ (รวมรายการที่ยังรอยืนยัน) · ตารางเวร/OT และไฟล์ HRMi ใช้ได้หลังปฏิบัติงานและอนุมัติแล้ว</div>' : ''); };
   $('exDemo').innerHTML = demoBanner($('exYm').value);
   $$('#exDoc button').forEach(function(b){ b.onclick = function(){ $$('#exDoc button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); }; });
 };
