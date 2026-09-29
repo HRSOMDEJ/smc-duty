@@ -229,10 +229,10 @@ function printAttachments(ym, pid){
     }).then(function(){ return doc.save(); }).then(function(bytes){
       Swal.close();
       var name = 'ใบลืมสแกน_' + (pid === 'all' ? 'ทุกตำแหน่ง' : posName(pid)) + '_' + thYm(ym).replace(' ', '_') + '_' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
-      var blob = new Blob([bytes], { type: 'application/pdf' });
-      saveBlob(blob, name + '.pdf');
-      if (bytes.length < 18 * 1024 * 1024) api('saveExportCopy', { ym: ym, name: name, mimeType: 'application/pdf', data: bytesToB64(bytes), kind: 'attachments', positions: pid }, { quiet: true }).catch(function(){});
-      Swal.fire({ icon: fails.length ? 'warning' : 'success', title: 'รวมใบลืมสแกนเรียบร้อย', html: 'รวม ' + (n - fails.length) + ' ไฟล์ ดาวน์โหลดลงเครื่องแล้ว' + (fails.length ? '<div class="text-start small mt-2 text-danger">ไฟล์ที่รวมไม่ได้ (เปิดดูได้ในระบบ):<br>' + fails.map(esc).join('<br>') + '</div>' : ''), confirmButtonText: 'รับทราบ' });
+      // 29 ก.ย. 69: เปิดเล่มให้ดู/พิมพ์ทันที (กด "เปิดในแท็บใหม่" แล้วสั่งพิมพ์ หรือ "ดาวน์โหลด") · ไม่เก็บสำเนาใน Drive
+      fileViewer({ fileName: name + '.pdf', mimeType: 'application/pdf', data: bytesToB64(bytes) });
+      if (fails.length) alertBox('รวมได้ ' + (n - fails.length) + ' ไฟล์ · รวมไม่ได้ ' + fails.length + ' ไฟล์', 'ไฟล์ที่รวมไม่ได้ (เปิดดูได้ในระบบ):\n' + fails.join('\n'), 'warning');
+      else notify('รวมใบลืมสแกน ' + n + ' ไฟล์เรียบร้อย');
     }).catch(function(e){ Swal.close(); alertBox('รวมเอกสารไม่สำเร็จ', e.message || String(e), 'error'); });
   }).catch(function(){});
 }
@@ -288,6 +288,144 @@ function printReport(o){
     return m;
   });
 }
+/* ================= 29 ก.ย. 69 พิมพ์เอกสารจากเบราว์เซอร์ (ตารางเวร/OT · ใบลงชื่อ FM-HRM-031) =================
+ * เซิร์ฟเวอร์ส่งเฉพาะข้อมูล → จัดหน้า A4 ที่นี่ → เปิดหน้าต่างพิมพ์ทันที (ต้องการไฟล์: เลือก "บันทึกเป็น PDF")
+ * ไม่สร้าง Google Sheet ชั่วคราว ไม่เก็บไฟล์ใน Drive · ทุกหน้าย่อให้พอดีกระดาษ 1 หน้าอัตโนมัติ */
+function ensureDocFont(){
+  if (!$('fSarabun')) { var l = document.createElement('link'); l.id = 'fSarabun'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,400;0,700;1,400&display=swap'; document.head.appendChild(l); }
+  var p = (document.fonts && document.fonts.load) ? Promise.all([document.fonts.load('400 14px Sarabun'), document.fonts.load('700 14px Sarabun')]).catch(function(){}) : Promise.resolve();
+  return Promise.race([p, new Promise(function(r){ setTimeout(r, 2500); })]);
+}
+/** o: {orient:'landscape'|'portrait', pages:[html], title} */
+function printDoc(o){
+  return ensureDocFont().then(function(){
+    var root = $('printRoot');
+    root.className = 'docs ' + o.orient + ' measuring';
+    $('printPage').textContent = '@page{size:A4 ' + o.orient + ';margin:8mm}';
+    root.innerHTML = o.pages.map(function(h){ return '<section class="dp"><div class="dp-in">' + h + '</div></section>'; }).join('');
+    $$('.dp', root).forEach(function(sec){
+      var inn = sec.firstChild, W = sec.clientWidth, H = sec.clientHeight, w = inn.scrollWidth, h = inn.scrollHeight;
+      var k = Math.min(1, W / Math.max(1, w), H / Math.max(1, h));
+      inn.style.zoom = k.toFixed(4);   // ใช้ zoom (ไม่ใช้ transform) เพื่อให้เครื่องพิมพ์ตัดหน้าตามขนาดที่ย่อแล้วจริง
+    });
+    root.classList.remove('measuring');
+    var t0 = document.title; if (o.title) document.title = o.title;   // ชื่อไฟล์ตั้งต้นเมื่อเลือก "บันทึกเป็น PDF"
+    document.body.classList.add('printing');
+    var done = function(){ document.body.classList.remove('printing'); document.title = t0; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(function(){ try { window.print(); } catch (e) { alertBox('เปิดหน้าต่างพิมพ์ไม่ได้', 'กรุณากด Ctrl+P (หรือ ⌘+P) เพื่อพิมพ์', 'info'); } setTimeout(done, 1500); }, 150);
+  });
+}
+function docNum(v, d){ v = +v || 0; return d ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (v % 1 === 0 ? v.toLocaleString('en-US') : String(+v.toFixed(2))); }
+function docSignHtml(L, R){
+  var blk = function(x){ return x ? '<div class="ds-b"><div>' + esc(x.title) + '</div><div class="ds-gap"></div><div>' + '.'.repeat(68) + '</div><div>' + esc(x.name) + '</div><div>' + esc(x.role || '') + '</div></div>' : '<div class="ds-b"></div>'; };
+  return '<div class="ds">' + blk(L) + blk(R) + '</div>';
+}
+/** ตารางเวร / ตาราง OT 1 หน้า (รูปแบบเดียวกับเอกสารแนบเบิกเดิม) */
+function docTableHtml(m, foot, page, pages){
+  var nD = m.dates.length, n = m.rows.length, ot = m.type === 'ot';
+  var wNo = 28, wCode = 64, wName = m.withUnit ? 150 : 170, wPos = m.withUnit ? 110 : 128, wUnit = 90, wTot = 44, wAmt = m.pay ? 92 : 0, wDay = ot ? 28 : 26;
+  var totalW = wNo + wCode + wName + wPos + (m.withUnit ? wUnit : 0) + wTot + wAmt + wDay * nD;
+  var k = Math.max(1, totalW / 1065), big = n <= 25;
+  var rowH = Math.max(20, Math.min(48, Math.floor((726 * k - 332) / Math.max(1, n))));
+  var fName = n <= 15 ? 11 : big ? 10.5 : 9.5, fDay = big ? 13 : 11.5, fSum = big ? 12 : 11;
+  var cols = '<col style="width:' + wNo + 'px"><col style="width:' + wCode + 'px"><col style="width:' + wName + 'px"><col style="width:' + wPos + 'px">' + (m.withUnit ? '<col style="width:' + wUnit + 'px">' : '') +
+    m.dates.map(function(){ return '<col style="width:' + wDay + 'px">'; }).join('') + '<col style="width:' + wTot + 'px">' + (m.pay ? '<col style="width:' + wAmt + 'px">' : '');
+  var bg = function(x){ return x.bg ? ' style="background:' + x.bg + '"' : ''; };
+  var h = '<div class="dt" style="width:' + totalW + 'px;font-size:' + fName + 'pt">' +
+    '<div class="dt-h1">' + esc(m.head) + '</div><div class="dt-h2">' + esc(m.posLine) + '</div><div class="dt-h2">' + esc(m.code) + '</div><div class="dt-mark">' + esc(m.mark) + '</div>' +
+    '<table class="dt-t"><colgroup>' + cols + '</colgroup><thead><tr><th rowspan="2">ลำดับ</th><th rowspan="2">รหัสเจ้าหน้าที่</th><th rowspan="2">ชื่อ-นามสกุล</th><th rowspan="2">ตำแหน่ง</th>' + (m.withUnit ? '<th rowspan="2">จุดปฏิบัติงาน</th>' : '') +
+    m.dates.map(function(x){ return '<th' + bg(x) + '>' + x.d + '</th>'; }).join('') + '<th rowspan="2">' + (ot ? 'รวม OT' : 'รวม') + '</th>' + (m.pay ? '<th rowspan="2">' + (ot ? 'รายได้ OT (บาท)' : 'รายได้ (บาท)') + '</th>' : '') + '</tr><tr>' +
+    m.dates.map(function(x){ return '<th' + bg(x) + '>' + esc(x.dow) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  m.rows.forEach(function(r){
+    h += '<tr style="height:' + rowH + 'px"><td class="c">' + r.no + '</td><td class="c">' + esc(r.code) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.pos) + '</td>' + (m.withUnit ? '<td>' + esc(r.unit) + '</td>' : '') +
+      r.days.map(function(v, i){ return '<td class="d" style="font-size:' + fDay + 'pt' + (m.dates[i].bg ? ';background:' + m.dates[i].bg : '') + '">' + (v === '' ? '' : esc(ot ? docNum(v) : v)) + '</td>'; }).join('') +
+      '<td class="t" style="font-size:' + fSum + 'pt">' + docNum(r.total) + '</td>' + (m.pay ? '<td class="a" style="font-size:' + fSum + 'pt">' + docNum(r.amt, 2) + '</td>' : '') + '</tr>';
+  });
+  h += '<tr class="sum" style="font-size:' + fSum + 'pt"><td colspan="' + (m.withUnit ? 5 : 4) + '" class="c">รวมประจำวัน</td>' + m.daily.map(function(v){ return '<td class="c">' + (v ? docNum(v) : '') + '</td>'; }).join('') +
+    '<td class="c">' + docNum(m.sumTotal) + '</td>' + (m.pay ? '<td class="a">' + docNum(m.sumAmt, 2) + '</td>' : '') + '</tr></tbody></table>' +
+    '<div class="dt-leg">' + esc(m.legend) + '</div>' + docSignHtml(m.sign.left, m.sign.right) +
+    '<div class="dt-foot"><i>' + esc(foot) + '</i><span>หน้า ' + page + ' / ' + pages + '</span></div></div>';
+  return h;
+}
+/** ใบลงชื่อ FM-HRM-031 1 ใบ (A4 แนวตั้ง) */
+function docSignSheetHtml(pg, foot){
+  var W = [70, 80, 74, 216, 64, 64, 36, 122];
+  var h = '<div class="dss"><div class="dss-t1">' + esc(pg.t1) + '</div><div class="dss-t2">' + esc(pg.t2) + '</div><div class="dss-t3">' + esc(pg.t3) + '</div>' +
+    '<table class="dss-t"><colgroup>' + W.map(function(w){ return '<col style="width:' + w + 'px">'; }).join('') + '</colgroup><thead><tr><th>วัน</th><th>วันที่</th><th>รหัสเจ้าหน้าที่</th><th>ชื่อ-นามสกุล</th><th>เวลาเข้างาน</th><th>เวลาออกงาน</th><th>OT</th><th>ลงลายมือชื่อ</th></tr></thead><tbody>';
+  pg.rows.forEach(function(r){
+    var b = r[5] ? ' style="background:' + r[5] + '"' : '';
+    var dk = r[4] ? ' class="dk"' : b;
+    h += '<tr><td class="c"' + b + '>' + esc(r[0]) + '</td><td class="c"' + b + '>' + esc(r[1]) + '</td><td class="c"' + dk + '>' + esc(r[2]) + '</td><td' + (r[4] ? ' class="dk nm"' : b) + '>' + esc(r[3]) + '</td>' +
+      '<td' + dk + '></td><td' + dk + '></td><td' + dk + '></td><td' + dk + '></td></tr>';
+  });
+  return h + '</tbody></table><div class="dss-note">ช่องสีเทาทึบ = วันปิดคลินิก หรือไม่มีกรอบเวรสำหรับใบนี้ (ห้ามลงชื่อ) · ลงเวลาเข้า-ออกงานตามจริง</div>' +
+    docSignHtml(pg.left, pg.right) + '<div class="dss-foot"><i>' + esc(foot || '') + '</i></div><div class="dss-pg">' + esc(pg.page) + '</div></div>';
+}
+function printTablesDoc(r){ return printDoc({ orient: 'landscape', title: r.title, pages: r.pages.map(function(m, i){ return docTableHtml(m, r.foot, i + 1, r.pages.length); }) }); }
+function printSignDoc(r){ return printDoc({ orient: 'portrait', title: r.title, pages: r.pages.map(function(pg){ return docSignSheetHtml(pg, r.foot); }) }); }
+
+/* ================= 29 ก.ย. 69 สร้างไฟล์ Excel (.xlsx) และ ZIP ในเครื่อง (ไม่ต้องใช้ไลบรารีภายนอก) ================= */
+var CRC_T = null;
+function crc32(u8){ if (!CRC_T) { CRC_T = []; for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_T[n] = c >>> 0; } } var x = 0xFFFFFFFF; for (var i = 0; i < u8.length; i++) x = CRC_T[(x ^ u8[i]) & 255] ^ (x >>> 8); return (x ^ 0xFFFFFFFF) >>> 0; }
+/** files: [{name, data: Uint8Array|string}] → Blob (ZIP แบบไม่บีบอัด) */
+function zipBlob(files, type){
+  var enc = new TextEncoder(), parts = [], cen = [], off = 0;
+  var d = new Date(), dt = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF, dd = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+  files.forEach(function(f){
+    var nm = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+    var h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true); h.setUint16(10, dt, true); h.setUint16(12, dd, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nm.length, true); h.setUint16(28, 0, true);
+    parts.push(new Uint8Array(h.buffer), nm, data);
+    var c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true); c.setUint16(12, dt, true); c.setUint16(14, dd, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+    cen.push(new Uint8Array(c.buffer), nm);
+    off += 30 + nm.length + data.length;
+  });
+  var csize = cen.reduce(function(a, x){ return a + x.length; }, 0);
+  var e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+  return new Blob(parts.concat(cen).concat([new Uint8Array(e.buffer)]), { type: type || 'application/zip' });
+}
+function xmlEsc(v){ return String(v).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function colName(i){ var s = ''; i++; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+/** sheets: [{name, rows:[[...]]}] แถวแรก = หัวตาราง (ตัวหนา พื้นเทา) · ทุกช่องมีเส้นขอบ · ฟอนต์ Tahoma 10 */
+function xlsxBlob(sheets){
+  var sheetXml = function(sh){
+    var widths = [];
+    sh.rows.forEach(function(r){ r.forEach(function(v, i){ var l = String(v == null ? '' : v).length; widths[i] = Math.max(widths[i] || 8, Math.min(40, l + 2)); }); });
+    var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>' +
+      widths.map(function(w, i){ return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (w * 1.4).toFixed(1) + '" customWidth="1"/>'; }).join('') + '</cols><sheetData>';
+    sh.rows.forEach(function(r, ri){
+      x += '<row r="' + (ri + 1) + '">' + r.map(function(v, ci){
+        var ref = colName(ci) + (ri + 1), st = ri === 0 ? 1 : 2;
+        if (typeof v === 'number' && isFinite(v)) return '<c r="' + ref + '" s="' + st + '"><v>' + v + '</v></c>';
+        return '<c r="' + ref + '" s="' + st + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(v == null ? '' : v) + '</t></is></c>';
+      }).join('') + '</row>';
+    });
+    return x + '</sheetData></worksheet>';
+  };
+  var names = sheets.map(function(s, i){ return xmlEsc(String(s.name || ('Sheet' + (i + 1))).replace(/[\[\]\*\?\/\\:]/g, ' ').slice(0, 31)); });
+  var files = [
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      sheets.map(function(s, i){ return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') + '</Types>' },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: 'xl/workbook.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+      names.map(function(n, i){ return '<sheet name="' + n + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map(function(s, i){ return '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') +
+      '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+    { name: 'xl/styles.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="10"/><name val="Tahoma"/></font><font><b/><sz val="10"/><name val="Tahoma"/></font></fonts>' +
+      '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+      '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/></cellXfs></styleSheet>' }
+  ];
+  sheets.forEach(function(sh, i){ files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: sheetXml(sh) }); });
+  return zipBlob(files, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+}
+
 /** ตารางสำหรับรายงานพิมพ์ */
 function prTable(cols, rows, groupBy){
   var h = '<table class="pr-table"><thead><tr>' + cols.map(function(c){ return '<th' + (c.w ? ' style="width:' + c.w + '"' : '') + (c.num ? ' class="num"' : '') + '>' + esc(c.t) + '</th>'; }).join('') + '</tr></thead><tbody>';

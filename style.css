@@ -255,6 +255,19 @@ a{color:var(--brand-600)}
 .upd-x{border:0;background:transparent;color:#fff;font-size:20px;line-height:1;padding:0 4px;opacity:.7}.upd-x:hover{opacity:1}
 .slow-hint{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);opacity:0;pointer-events:none;z-index:5000;background:rgba(29,23,25,.88);color:#fff;font-size:13px;padding:8px 16px;border-radius:99px;box-shadow:0 12px 30px -10px rgba(0,0,0,.5);transition:all .3s cubic-bezier(.2,.8,.2,1);display:flex;align-items:center;gap:10px;backdrop-filter:blur(8px)}
 .slow-hint.show{opacity:1;transform:translate(-50%,0)}
+.stale-hint{position:fixed;right:16px;top:64px;z-index:4900;opacity:0;transform:translateY(-8px);pointer-events:none;background:#fff;color:#374151;border:1px solid #e5e7eb;font-size:12.5px;padding:5px 12px;border-radius:99px;box-shadow:0 8px 22px -12px rgba(0,0,0,.35);transition:all .25s ease;display:flex;align-items:center;gap:8px}
+.stale-hint.show{opacity:1;transform:none}
+.stale-hint .spinner-border{width:12px;height:12px;border-width:2px;color:var(--brand)}
+/* 29 ก.ย. 69 บันทึกเบื้องหลัง: ป้ายสถานะการบันทึก */
+.save-chip{position:fixed;left:16px;bottom:18px;z-index:5001;display:flex;align-items:center;gap:8px;background:#1f2937;color:#fff;font-size:13px;padding:8px 14px;border-radius:99px;box-shadow:0 12px 30px -10px rgba(0,0,0,.5);opacity:0;transform:translateY(16px);transition:all .25s ease;pointer-events:none}
+.save-chip.show{opacity:1;transform:none}
+.save-chip.ok{background:#15803d}.save-chip.bad{background:#b91c1c;pointer-events:auto}
+.save-chip .spinner-border{width:13px;height:13px;border-width:2px}
+.chip.saving{opacity:.75;border-style:dashed;animation:pulseSave 1.1s ease-in-out infinite}
+@keyframes pulseSave{50%{opacity:.4}}
+tr.row-saving td{background:#fffbeb!important}
+tr.row-saving .preview::after{content:' · กำลังบันทึก…';color:#b45309;font-size:12px}
+@media (max-width:576px){.stale-hint{top:auto;bottom:70px;right:50%;transform:translateX(50%)}.stale-hint.show{transform:translateX(50%)}}
 .dotflash{display:inline-flex;gap:3px}.dotflash i{width:5px;height:5px;border-radius:50%;background:#fff;animation:blink 1s infinite}.dotflash i:nth-child(2){animation-delay:.2s}.dotflash i:nth-child(3){animation-delay:.4s}
 @media (max-width:600px){.card-h>.ms-auto{flex-wrap:wrap;margin-left:0!important;width:100%}.card-h>.ms-auto input{flex:1;min-width:0;width:auto!important}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -643,6 +656,48 @@ tr.cal-row.dk-WEEKEND td,tr.sheet-empty.dk-WEEKEND td{background:var(--d-weekend
 
 /* ---------- v1.3 พิมพ์รายงาน ---------- */
 #printRoot{display:none}
+/* 29 ก.ย. 69 เอกสารพิมพ์จากเบราว์เซอร์ (ตารางเวร/OT · ใบลงชื่อ) — 1 section = 1 หน้า A4 ย่อให้พอดีอัตโนมัติ */
+#printRoot.measuring{display:block!important;position:fixed;left:-99999px;top:0;visibility:hidden}
+#printRoot.docs{font-family:'Sarabun','IBM Plex Sans Thai',sans-serif;color:#000}
+#printRoot.docs .dp{position:relative;overflow:hidden;break-after:page;page-break-after:always;background:#fff;display:flex;justify-content:center;align-items:flex-start}
+#printRoot.docs .dp:last-child{break-after:auto;page-break-after:auto}
+#printRoot.docs.landscape .dp{width:281mm;height:193mm}
+#printRoot.docs.portrait .dp{width:194mm;height:280mm}
+#printRoot.docs .dp-in{width:max-content;flex:none}
+.dt-h1{text-align:center;font-weight:700;font-size:15pt;line-height:26px}
+.dt-h2{text-align:center;font-weight:700;font-size:12.5pt;line-height:22px}
+.dt-mark{text-align:center;font-weight:700;font-size:11.5pt;color:#c00000;line-height:20px;min-height:20px}
+.dt-t{border-collapse:collapse;table-layout:fixed;width:100%;border:2px solid #000}
+.dt-t th,.dt-t td{border:1px solid #000;padding:1px 3px;vertical-align:middle;overflow:hidden}
+.dt-t thead th{background:#f2f2f2;font-size:10.5pt;text-align:center;font-weight:700;line-height:1.15;word-break:break-all;padding:1px}
+.dt-t thead{border-bottom:2px solid #000}
+.dt-t td.c,.dt-t td.d{text-align:center}
+.dt-t td.d{font-weight:700;padding:0}
+.dt-t td.t{text-align:center;font-weight:700}
+.dt-t td.a{text-align:right;font-weight:700}
+.dt-t tr.sum td{background:#dde4ee;font-weight:700;height:26px}
+.dt-leg{font-size:10pt;color:#333;line-height:20px;margin-top:2px}
+.ds{display:flex;justify-content:space-between;margin-top:10px;padding:0 0 0 28px}
+.ds-b{width:40%;text-align:center;font-size:12pt;line-height:22px}
+.ds-b .ds-gap{height:16px}
+.dt-foot{display:flex;justify-content:space-between;margin-top:10px;font-size:9pt;color:#555}
+.dt-foot span{font-size:10pt;color:#000;font-style:normal}
+.dss{width:726px;font-size:12pt}
+.dss-t1{text-align:center;font-weight:700;font-size:15pt;line-height:30px;margin-top:8px}
+.dss-t2{text-align:center;font-weight:700;font-size:13pt;line-height:26px}
+.dss-t3{text-align:center;font-weight:700;font-size:11pt;color:#c00000;line-height:18px;min-height:18px}
+.dss-t{border-collapse:collapse;table-layout:fixed;width:726px;border:2px solid #000}
+.dss-t th{background:#eee;font-weight:700;font-size:11.5pt;height:32px;border:1px solid #000;text-align:center;line-height:1.1}
+.dss-t td{border:1px solid #000;height:25px;padding:0 3px;overflow:hidden;white-space:nowrap}
+.dss-t td:nth-child(-n+2){font-size:11pt;padding:0 1px}
+.dss-t td.c{text-align:center}
+.dss-t td.dk{background:#9e9e9e!important}
+.dss-t td.nm.dk{color:#fff}
+.dss-note{font-size:9.5pt;color:#444;line-height:20px}
+.dss .ds{padding:0;margin-top:14px}
+.dss .ds-b{width:48%}
+.dss-foot{font-size:8pt;color:#555;margin-top:8px;min-height:14px}
+.dss-pg{text-align:right;font-size:9.5pt}
 @media print{
   body.printing>*:not(#printRoot){display:none!important}
   body.printing{background:#fff!important}

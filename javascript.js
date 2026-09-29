@@ -1,4 +1,4 @@
-var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-28.4', SMC_BUILD_TH = '28 ก.ย. 2569';
+var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-30.1', SMC_BUILD_TH = '30 ก.ย. 2569';
 /* BRAND (ชื่อระบบ โลโก้ สี ประกาศ): อ่านค่าที่แคชไว้ในเครื่องก่อน แล้วขอค่าล่าสุดจาก backend ตอนเริ่มแอป (ดู init ใน help.js) */
 var BRAND = (function(){ try { return JSON.parse(localStorage.getItem('smc_brand') || 'null'); } catch (e) { return null; } })();
 /* ================= แกนหลัก ================= */
@@ -185,7 +185,7 @@ function viaGas(){ return !!(window.google && google.script && google.script.run
 var NET = { active: 0, queue: [], MAX: 4 };
 function netSlot(){ return new Promise(function(res){ if (NET.active < NET.MAX) { NET.active++; res(); } else NET.queue.push(res); }); }
 function netDone(){ var n = NET.queue.shift(); if (n) n(); else NET.active = Math.max(0, NET.active - 1); }
-function isReadAction(a){ return /^(get|list|bootstrap|branding|ping|suggest|login)/.test(a); }
+function isReadAction(a){ return /^(get|list|bootstrap|branding|ping|suggest|login|print)/.test(a); }
 function netErr(kind, msg){ var e = new Error(msg); e.net = kind; return e; }
 function fetchOnce(action, payload, timeoutMs){
   var ctl = window.AbortController ? new AbortController() : null;
@@ -228,36 +228,128 @@ function slowHint(on){
   if (!el) { el = document.createElement('div'); el.id = 'slowHint'; el.className = 'slow-hint'; el.innerHTML = '<span class="dotflash"><i></i><i></i><i></i></span> กำลังรอเซิร์ฟเวอร์ Google ตอบกลับ…'; document.body.appendChild(el); }
   el.classList.toggle('show', SLOWN > 0);
 }
-/** แคชในหน่วยความจำ (เปิดหน้าเดิมซ้ำแสดงผลทันที แล้วค่อยโหลดข้อมูลล่าสุดมาแทน) */
-var MEMO = {}, MEMO_T = {};
+/* ================= แคชข้อมูลในเครื่อง + เลขรุ่นข้อมูล (29 ก.ย. 69) =================
+ * ทุกคำตอบจากเซิร์ฟเวอร์มี "เลขรุ่นข้อมูล" (dv) ซึ่งเปลี่ยนทุกครั้งที่มีผู้ใดบันทึกข้อมูล
+ * - เปิดหน้าที่เคยเปิดแล้ว: แสดงข้อมูลที่จำไว้ทันที (0 วินาที)
+ * - ถ้าเลขรุ่นยังเท่าเดิม (ไม่มีใครแก้ข้อมูล) → ไม่ถามเซิร์ฟเวอร์เลย
+ * - ถ้าเลขรุ่นเปลี่ยน → แสดงของเดิมไปก่อน พร้อมป้าย "กำลังอัปเดต" แล้วโหลดของใหม่มาแทนเบื้องหลัง
+ * - ระบบถามเลขรุ่นล่าสุดเบา ๆ ทุก 90 วินาที (เฉพาะตอนเปิดหน้าจออยู่) · บันทึกข้อมูลแล้วไม่ต้องล้างแคชทั้งหมดอีก
+ * แยกตามผู้ใช้ · ล้างทั้งหมดเมื่อออกจากระบบ */
+var MEMO = {};
 function memoKey(action, payload){ return action + '|' + JSON.stringify(payload || {}); }
-function memoClear(){ MEMO = {}; MEMO_T = {}; }
-/* 28 ก.ย. 69 แคชในเครื่อง (localStorage) ของหน้าที่เปิดบ่อย: เปิดระบบ/รีเฟรชแล้วเห็นข้อมูลล่าสุดที่เคยโหลดทันที แล้วค่อยอัปเดต
- * แยกตามผู้ใช้ · ล้างทั้งหมดเมื่อบันทึกข้อมูลใดๆ หรือออกจากระบบ · ข้อมูลใหญ่เกิน 400 KB ไม่เก็บ */
-var PC_PRE = 'smc_c:', PC_MAX = 12;
+function memoClear(){ MEMO = {}; }
+var DV = { v: store('smc_dv') || '', at: 0 };
+function dvNum(v){ v = String(v || ''); return v.length >= 8 ? (parseInt(v.slice(0, 8), 36) || 0) : 0; }
+/** รับเลขรุ่นจากเซิร์ฟเวอร์ · คำตอบของการอ่านข้อมูลรับเฉพาะเลขที่ใหม่กว่า (กันคำตอบที่มาช้าย้อนเลขรุ่น) · การบันทึก/การถามเลขรุ่น (sure) รับเสมอ */
+function dvSeen(v, sure){
+  if (!v) return;
+  if (sure || !DV.v || v === DV.v || dvNum(v) > dvNum(DV.v)) {
+    if (v !== DV.v) { DV.v = v; store('smc_dv', v); }
+    DV.at = Date.now();
+  }
+}
+/** ข้อมูลในเครื่องยังเป็นปัจจุบันหรือไม่ */
+function isCurrent(ce){
+  if (!ce || !ce.dv || ce.dv !== DV.v) return false;
+  var age = Date.now() - (ce.t || 0);
+  if (age < 20000) return true;                                     // เพิ่งได้มา (เช่น มาพร้อมการเข้าสู่ระบบ)
+  return age < 15 * 60000 && Date.now() - DV.at < 100000;          // เลขรุ่นเพิ่งยืนยันกับเซิร์ฟเวอร์ และข้อมูลไม่เกิน 15 นาที
+}
+var PC_PRE = 'smc_c:', PC_MAX = 16;
 function pcUser(){ return (S.boot && S.boot.me && S.boot.me.empCode) || ''; }
 function pcKey(mk){ return PC_PRE + pcUser() + ':' + mk; }
-function pcGet(mk){ if (!pcUser()) return null; try { var v = localStorage.getItem(pcKey(mk)); return v ? JSON.parse(v).d : null; } catch (e) { return null; } }
-function pcSet(mk, d){
+function pcGetE(mk){ if (!pcUser()) return null; try { var v = localStorage.getItem(pcKey(mk)); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+function pcGet(mk){ var e = pcGetE(mk); return e ? e.d : null; }
+function pcIdx(){ try { return JSON.parse(localStorage.getItem(PC_PRE + 'idx') || '[]'); } catch (e) { return []; } }
+function pcSet(mk, d, dv, t){
   if (!pcUser()) return;
-  try {
-    var s = JSON.stringify({ t: Date.now(), d: d }); if (s.length > 400000) return;
-    localStorage.setItem(pcKey(mk), s);
-    var idx = JSON.parse(localStorage.getItem(PC_PRE + 'idx') || '[]').filter(function(k){ return k !== pcKey(mk); }); idx.push(pcKey(mk));
-    while (idx.length > PC_MAX) localStorage.removeItem(idx.shift());
-    localStorage.setItem(PC_PRE + 'idx', JSON.stringify(idx));
-  } catch (e) { pcClear(); }
+  var s = JSON.stringify({ t: t || Date.now(), dv: dv || '', d: d, mk: mk }); if (s.length > 1500000) return;
+  for (var tries = 0; tries < 4; tries++) {
+    try {
+      localStorage.setItem(pcKey(mk), s);
+      var idx = pcIdx().filter(function(k){ return k !== pcKey(mk); }); idx.push(pcKey(mk));
+      while (idx.length > PC_MAX) localStorage.removeItem(idx.shift());
+      localStorage.setItem(PC_PRE + 'idx', JSON.stringify(idx));
+      return;
+    } catch (e) {   // พื้นที่เต็ม → ลบรายการเก่าสุดแล้วลองใหม่
+      var i2 = pcIdx(); if (!i2.length) return; localStorage.removeItem(i2.shift()); try { localStorage.setItem(PC_PRE + 'idx', JSON.stringify(i2)); } catch (e2) { return; }
+    }
+  }
 }
 function pcClear(){ try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf(PC_PRE) === 0) localStorage.removeItem(k); }); } catch (e) { } }
+function cachePut(mk, d, dv){ var e = { d: d, t: Date.now(), dv: dv || DV.v }; MEMO[mk] = e; pcSet(mk, d, e.dv, e.t); }
+/** ป้ายเล็ก "กำลังอัปเดตข้อมูลล่าสุด" ระหว่างแสดงข้อมูลที่จำไว้ */
+var STALEN = 0;
+function staleHint(on){
+  STALEN = Math.max(0, STALEN + (on ? 1 : -1));
+  var el = $('staleHint');
+  if (!el) { el = document.createElement('div'); el.id = 'staleHint'; el.className = 'stale-hint'; el.setAttribute('role', 'status'); el.innerHTML = '<span class="spinner-border"></span> กำลังอัปเดตข้อมูลล่าสุด…'; document.body.appendChild(el); }
+  el.classList.toggle('show', STALEN > 0);
+}
+/** ถามเลขรุ่นล่าสุด (เบามาก) · ทุก 90 วินาทีขณะเปิดหน้าจอ และทันทีเมื่อกลับมาที่แท็บนี้ */
+var dvPollBusy = false;
+function dvPoll(){
+  if (dvPollBusy || document.hidden || !S.token || viaGas() || !API_URL) return;
+  if (Date.now() - DV.at < 60000) return;
+  dvPollBusy = true;
+  netSlot().then(function(){ return fetchOnce('ping', {}, 30000); }).then(function(x){ netDone(); dvPollBusy = false; if (x && x.dv) dvSeen(x.dv, true); }, function(){ netDone(); dvPollBusy = false; });
+}
+setInterval(dvPoll, 90000);
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(dvPoll, 400); });
+/** หลังเข้าระบบ: โหลดหน้าที่ผู้ใช้เปิดบ่อย (ที่ข้อมูลเก่าแล้ว) ไว้ล่วงหน้าเบื้องหลัง ทีละรายการ ครั้งละไม่เกิน 4 หน้า */
+var prefetchDone = false;
+function prefetchRecent(){
+  if (prefetchDone || !S.token || viaGas()) return; prefetchDone = true;
+  var pre = PC_PRE + pcUser() + ':';
+  var list = pcIdx().filter(function(k){ return k.indexOf(pre) === 0; }).reverse().map(function(k){ try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } })
+    .filter(function(e){ return e && e.mk && !isCurrent(MEMO[e.mk] || e); }).slice(0, 4);
+  var chain = Promise.resolve();
+  list.forEach(function(e){
+    var i = e.mk.indexOf('|'), action = e.mk.slice(0, i), payload = JSON.parse(e.mk.slice(i + 1) || '{}');
+    chain = chain.then(function(){
+      if (document.hidden || !S.token) return;
+      return netSlot().then(function(){ return fetchOnce(action, payload); }).then(function(x){ netDone(); if (x && x.dv) dvSeen(x.dv); if (x && x.ok) cachePut(e.mk, x.data, x.dv); }, function(){ netDone(); });
+    });
+  });
+}
+/** ป้ายสถานะการบันทึกเบื้องหลัง (มุมซ้ายล่าง): savingChip(+1) เริ่ม · savingChip(-1, true|false) จบ */
+var SAVEN = 0, saveT = null;
+function savingChip(d, ok){
+  SAVEN = Math.max(0, SAVEN + d);
+  var el = $('saveChip');
+  if (!el) { el = document.createElement('div'); el.id = 'saveChip'; el.className = 'save-chip'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
+  clearTimeout(saveT);
+  if (SAVEN > 0) { el.className = 'save-chip show'; el.innerHTML = '<span class="spinner-border"></span> กำลังบันทึก' + (SAVEN > 1 ? ' ' + SAVEN + ' รายการ' : '') + '… ใช้งานต่อได้เลย'; return; }
+  if (ok === false) { el.className = 'save-chip show bad'; el.innerHTML = '<i class="bi bi-exclamation-triangle"></i> บันทึกไม่สำเร็จ'; saveT = setTimeout(function(){ el.className = 'save-chip'; }, 4000); return; }
+  el.className = 'save-chip show ok'; el.innerHTML = '<i class="bi bi-check2-circle"></i> บันทึกแล้ว';
+  saveT = setTimeout(function(){ el.className = 'save-chip'; }, 1800);
+}
+window.addEventListener('beforeunload', function(e){ if (SAVEN > 0) { e.preventDefault(); e.returnValue = 'ระบบกำลังบันทึกข้อมูล'; return e.returnValue; } });
+/** เปิดหน้าแบบ "แสดงของที่จำไว้ทันที แล้วอัปเดตเบื้องหลัง" · draw(data, meta) ถูกเรียกซ้ำเฉพาะเมื่อข้อมูลเปลี่ยนจริง */
+function apiView(action, payload, draw, extra){
+  var o = Object.assign({ fresh: true }, extra || {});
+  o.onCache = function(d, m){ draw(d, m || {}); };
+  return api(action, payload, o).then(function(d){ if (!o.unchanged) draw(d, { fresh: true }); return d; });
+}
 function api(action, payload, opt){
   opt = opt || {};
+  var mk = opt.fresh ? memoKey(action, payload) : null, shown = null;
   if (opt.fresh && opt.onCache) {
-    var mk = memoKey(action, payload), cd = MEMO[mk] || pcGet(mk);
-    if (cd) { try { opt.onCache(cd); } catch (e) { } }
-    // ข้อมูลที่เพิ่งได้มาไม่เกิน 20 วินาที (เช่น ที่ได้มาพร้อมการเข้าสู่ระบบ) ใช้ได้เลย ไม่ต้องถามเซิร์ฟเวอร์ซ้ำ
-    if (MEMO[mk] && MEMO_T[mk] && Date.now() - MEMO_T[mk] < 20000) return Promise.resolve(MEMO[mk]);
+    var ce = MEMO[mk] || pcGetE(mk);
+    if (ce) {
+      var cur = isCurrent(ce);
+      shown = JSON.stringify(ce.d);
+      try { opt.onCache(ce.d, { stale: !cur }); } catch (e) { }
+      if (cur) { opt.unchanged = true; return Promise.resolve(ce.d); }   // ข้อมูลในเครื่องเป็นปัจจุบัน ไม่ต้องถามเซิร์ฟเวอร์
+      staleHint(true);
+      var stOff = function(x){ staleHint(false); return x; };
+      return api(action, payload, Object.assign({}, opt, { onCache: null, quiet: true })).then(function(d){ stOff(); opt.unchanged = JSON.stringify(d) === shown; return d; }, function(e){
+        stOff();
+        if (e && e.message !== 'SESSION_EXPIRED') notify(e && e.handled ? e.message : 'ยังอัปเดตข้อมูลล่าสุดไม่ได้ (' + (e && e.message || 'เครือข่าย') + ') · แสดงข้อมูลที่จำไว้', 'warning');
+        throw e;
+      });
+    }
   }
-  if (!/^(get|list|bootstrap|branding|ping|suggest|login)/.test(action)) { memoClear(); pcClear(); }   // เขียนข้อมูล → ล้างแคช
   progress(true);
   if (opt.btn) btnBusy(opt.btn, true, opt.btnText);
   if (opt.block) blocking(opt.block);
@@ -265,7 +357,8 @@ function api(action, payload, opt){
   return rawCall(action, payload, opt.timeout).then(function(res){
     done();
     if (!res) { notify('ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์', 'error'); throw new Error('empty'); }
-    if (res.ok) { if (opt.fresh) { var k2 = memoKey(action, payload); MEMO[k2] = res.data; MEMO_T[k2] = Date.now(); pcSet(k2, res.data); } return res.data; }
+    if (res.dv) dvSeen(res.dv, !isReadAction(action));
+    if (res.ok) { if (opt.fresh) cachePut(mk, res.data, res.dv); return res.data; }
     if (res.error === 'SESSION_EXPIRED') { var was = !!S.token; store('smc_token', null); store('smc_boot', null); S.token = null; if (was && action !== 'logout') { notify('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง', 'warning'); showLogin(); } throw new Error(res.error); }
     var e = errParts(res.error);
     if (!opt.quiet) alertBox(e.title, e.text, 'warning');
@@ -347,10 +440,14 @@ function saveBlob(blob, name){
 var _lastFiles = [];
 function download(files){
   if (!files || !files.length) return;
-  _lastFiles = files.map(function(f){ return { name: f.name, blob: b64ToBlob(f.data, f.mimeType) }; });
+  downloadBlobs(files.map(function(f){ return { name: f.name, blob: b64ToBlob(f.data, f.mimeType) }; }));
+}
+/** files: [{name, blob}] ดาวน์โหลดลงเครื่อง (ระบบไม่เก็บสำเนาใน Drive) */
+function downloadBlobs(files){
+  _lastFiles = files;
   _lastFiles.forEach(function(f, i){ setTimeout(function(){ saveBlob(f.blob, f.name); }, i * 700); });
   Swal.fire({ icon: 'success', title: 'ดาวน์โหลดเอกสารเรียบร้อย',
-    html: '<div class="small-muted mb-2">ไฟล์ถูกบันทึกลงในเครื่องของท่าน (โฟลเดอร์ดาวน์โหลด) และระบบได้เก็บสำเนาไว้ในคลังเอกสารแล้ว</div><div class="text-start">' +
+    html: '<div class="small-muted mb-2">ไฟล์ถูกบันทึกลงในเครื่องของท่าน (โฟลเดอร์ดาวน์โหลด)</div><div class="text-start">' +
       _lastFiles.map(function(f, i){ return '<div class="d-flex align-items-center gap-2 mb-1"><i class="bi bi-file-earmark-check text-success"></i><span class="flex-grow-1 small text-break">' + esc(f.name) + '</span><button class="btn btn-sm btn-ghost" onclick="saveBlob(_lastFiles[' + i + '].blob,_lastFiles[' + i + '].name)">ดาวน์โหลดอีกครั้ง</button></div>'; }).join('') + '</div>',
     confirmButtonText: 'ปิด', width: 560 });
 }
@@ -389,7 +486,8 @@ $('fLogin').addEventListener('submit', function(e){
     lgWait(3);
     var b = r.boot; S.boot = b; S.ym = b.ym;
     try { store('smc_boot', JSON.stringify({ t: S.token.slice(-16), b: b })); } catch (e) { }
-    if (r.first) { var fk = memoKey(r.first.action, r.first.payload); MEMO[fk] = r.first.data; MEMO_T[fk] = Date.now(); pcSet(fk, r.first.data); }
+    if (r.first) cachePut(memoKey(r.first.action, r.first.payload), r.first.data);
+    setTimeout(prefetchRecent, 2500);
     if (b.me.mustChange || !b.me.hasPhone) return showForce();
     showApp();
     notify('ยินดีต้อนรับ ' + b.me.name.split(' ').slice(0, 2).join(' '));
@@ -428,6 +526,7 @@ function start(fresh){
     if (b.me.mustChange || !b.me.hasPhone) return showForce();
     if (changed) showApp();
     if (fresh) notify('ยินดีต้อนรับ ' + b.me.name.split(' ').slice(0, 2).join(' '));
+    setTimeout(prefetchRecent, 2500);
   }).catch(function(){ if (!S.boot) showLogin(); });
 }
 
@@ -451,7 +550,7 @@ $('fPhone').addEventListener('submit', function(e){
   api('updatePhone', { phone: $('phNew').value }, { btn: e.submitter }).then(function(me){ S.boot.me = me; notify('บันทึกหมายเลขโทรศัพท์เรียบร้อย'); showApp(); }).catch(function(){});
 });
 
-function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); pcClear(); store('smc_token', null); store('smc_boot', null); S.token = null; S.boot = null; showLogin(); }
+function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); pcClear(); prefetchDone = false; store('smc_token', null); store('smc_boot', null); S.token = null; S.boot = null; showLogin(); }
 
 function openAccount(){
   var me = S.boot.me;

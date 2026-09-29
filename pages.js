@@ -23,7 +23,7 @@ function dbPane(){
   loadDash();
 }
 function loadDash(){
-  api('getDashboard', { ym: S.ym }, { fresh: true, onCache: function(d){ if (d.ym && d.ym !== S.ym) return; S._dash = d; drawDash(); } }).then(function(d){ if (d.ym && d.ym !== S.ym) return; S._dash = d; drawDash(); }).catch(function(){});
+  apiView('getDashboard', { ym: S.ym }, function(d){ if (d.ym && d.ym !== S.ym) return; S._dash = d; drawDash(); }).catch(function(){});
 }
 function drawDash(){
   var d = S._dash; if (!d || !$('dbBody')) return;
@@ -147,7 +147,7 @@ function myPane(){
   loadMy();
 }
 function loadMy(){
-  api('getMyMonth', { ym: S.ym }, { fresh: true, onCache: drawMy }).then(drawMy).catch(function(){});
+  apiView('getMyMonth', { ym: S.ym }, function(d){ drawMy(d); }).catch(function(){});
 }
 function drawMy(d){
   if (!d || (d.ym && d.ym !== S.ym)) return;
@@ -225,7 +225,32 @@ function loadBoard(){
   if (S.bkMode === 'sheet') {
     return api('getScheduleGrid', { ym: S.bkYm, positionId: S.bkPid, scope: 'view' }).then(function(g){ $('bkBody').innerHTML = demoBanner(g.ym) + '<div id="bkGrid"></div>'; renderGrid('bkGrid', g, loadBoard); }).catch(function(){});
   }
-  api('getBookingBoard', { ym: S.bkYm, positionId: S.bkPid }).then(function(b){ b.multi ? renderBoardAll(b) : renderBoard(b); }).catch(function(){});
+  var ym = S.bkYm, pid = S.bkPid, n = 0;
+  apiView('getBookingBoard', { ym: ym, positionId: pid }, function(b){ if (S.bkYm !== ym || S.bkPid !== pid || !$('bkBody') || S.bkMode === 'sheet') return; drawBoardKeep(b, n++ > 0); }).catch(function(){});
+}
+/** วาดตารางลงเวรใหม่ โดยคงค่าที่กรอกไว้ (ลงเวรแทน/หมายเหตุ) และตำแหน่งเลื่อนจอ */
+function drawBoardKeep(b, keepScroll){
+  var y = window.scrollY, f = $('bkFor') ? $('bkFor').value : '', nt = $('bkNote') ? $('bkNote').value : '';
+  b.multi ? renderBoardAll(b) : renderBoard(b);
+  if (f && $('bkFor')) setSel('bkFor', f);
+  if ($('bkNote')) $('bkNote').value = nt;
+  bkApplyPending();
+  if (keepScroll !== false) window.scrollTo({ top: y, behavior: 'instant' });
+}
+/* 29 ก.ย. 69 ลงเวร/ยกเลิกเวรแบบไม่ต้องรอ: ชื่อขึ้นในช่องทันที (กรอบกะพริบ = กำลังบันทึก) แล้วระบบบันทึกเบื้องหลัง */
+S._bkPend = {};
+function bkApplyPending(){
+  $$('#bkBody .chip.saving.opt').forEach(function(el){ el.remove(); });
+  Object.keys(S._bkPend).forEach(function(k){
+    var p = S._bkPend[k];
+    if (p.pid !== S.bkPid || p.ym !== S.bkYm) return;
+    var slot = document.querySelector('#bkBody .slot[data-d="' + p.date + '"][data-s="' + p.slot + '"]'); if (!slot) return;
+    var chip = document.createElement('span'); chip.className = 'chip mine pend saving opt'; chip.title = 'กำลังบันทึก…';
+    chip.innerHTML = esc(shortName(p.name)) + (p.note ? ' <b>' + esc(p.note) + '</b>' : '') + ' <i class="bi bi-hourglass-split"></i>';
+    var add = slot.querySelector('.add-slot'); var host = add ? add.parentNode : null;
+    if (host) slot.insertBefore(chip, host); else slot.appendChild(chip);
+    if (host && !p.manage) host.hidden = true;
+  });
 }
 /* ---------- v1.3 ตารางเวรแบบ Google Sheet (ใช้ทั้งหน้าลงตารางเวรและตารางเวรรวม) ---------- */
 var GRID = null;
@@ -309,11 +334,11 @@ function renderBoard(b){
     else if (!d.slots.length) h += '<div class="small-muted"><i class="bi bi-dash-circle"></i> ไม่เปิดให้ลงเวร</div>';
     d.slots.forEach(function(s){
       var pct = d.quota ? Math.min(100, s.booked.length / d.quota * 100) : 0;
-      h += '<div class="slot ' + (s.full ? 'full ' : '') + (s.closed ? 'sclosed' : '') + '"><div class="top"><span class="sl" title="' + esc(slotL(s.slot).name) + '">' + esc(slotL(s.slot).s) + (slotL(s.slot).en ? ' <small>' + esc(slotL(s.slot).en) + '</small>' : '') + '</span><span class="small-muted">' + s.booked.length + '/' + d.quota + '</span></div><div class="bar"><i style="width:' + pct + '%"></i></div>';
+      h += '<div class="slot ' + (s.full ? 'full ' : '') + (s.closed ? 'sclosed' : '') + '" data-d="' + d.date + '" data-s="' + s.slot + '"><div class="top"><span class="sl" title="' + esc(slotL(s.slot).name) + '">' + esc(slotL(s.slot).s) + (slotL(s.slot).en ? ' <small>' + esc(slotL(s.slot).en) + '</small>' : '') + '</span><span class="small-muted">' + s.booked.length + '/' + d.quota + '</span></div><div class="bar"><i style="width:' + pct + '%"></i></div>';
       if (s.closed) h += '<div class="small-muted" style="font-size:11px">ช่วงนี้ปิดแล้ว</div>';
       s.booked.forEach(function(x){
         var canX = b.manage || (x.mine && x.status === 'PENDING' && b.windowOpen);
-        h += '<span class="chip ' + (x.mine ? 'mine ' : '') + (x.status === 'PENDING' ? 'pend' : '') + '" title="' + esc(x.empCode + ' ' + x.name + (x.note ? ' · ' + x.note : '')) + '">' + esc(shortName(x.name)) + (x.note ? ' <b>' + esc(x.note) + '</b>' : '') +
+        h += '<span class="chip ' + (x.mine ? 'mine ' : '') + (x.status === 'PENDING' ? 'pend' : '') + '" data-id="' + x.id + '" title="' + esc(x.empCode + ' ' + x.name + (x.note ? ' · ' + x.note : '')) + '">' + esc(shortName(x.name)) + (x.note ? ' <b>' + esc(x.note) + '</b>' : '') +
           (canX ? ' <span class="x" onclick="cancelBk(\'' + x.id + '\')" title="ยกเลิกเวร">×</span>' : '') + '</span>';
       });
       var mineHere = s.booked.some(function(x){ return x.mine; });
@@ -336,13 +361,28 @@ function bookBlocked(){
 }
 function shortName(n){ var p = String(n).split(' '); return p.length >= 3 ? p[1] + ' ' + p[2].slice(0, 1) + '.' : n; }
 function bookSlot(btn, date, slot){
-  var emp = $('bkFor') ? $('bkFor').value : '';
-  api('book', { date: date, positionId: S.bkPid, slot: slot, empCode: emp, note: $('bkNote') ? $('bkNote').value : '' }, { btn: btn })
-    .then(function(b){ notify('ลง' + slotL(slot).name + ' วันที่ ' + thDate(date) + ' เรียบร้อย'); var y = window.scrollY; var f = $('bkFor') ? $('bkFor').value : '', n = $('bkNote').value; renderBoard(b); if ($('bkFor')) setSel('bkFor', f); $('bkNote').value = n; window.scrollTo({ top: y, behavior: 'instant' }); }).catch(function(){});
+  var b0 = S._board || {}, emp = $('bkFor') ? $('bkFor').value : '', note = $('bkNote') ? $('bkNote').value : '';
+  var who = emp ? ((b0.employees || []).filter(function(e){ return e.empCode === emp; })[0] || {}).name || emp : S.boot.me.name;
+  var key = 'p' + Date.now() + Math.random(), pid = S.bkPid, ym = S.bkYm;
+  S._bkPend[key] = { pid: pid, ym: ym, date: date, slot: slot, name: who, note: note, manage: !!b0.manage };
+  bkApplyPending(); savingChip(1);
+  api('book', { date: date, positionId: pid, slot: slot, empCode: emp, note: note })
+    .then(function(b){
+      delete S._bkPend[key]; savingChip(-1, true);
+      notify('ลง' + slotL(slot).name + ' วันที่ ' + thDate(date) + ' เรียบร้อย');
+      if (S.page === 'booking' && S.bkPid === pid && S.bkYm === ym && S.bkMode !== 'sheet' && $('bkBody')) drawBoardKeep(b);
+    }).catch(function(){ delete S._bkPend[key]; savingChip(-1, false); bkApplyPending(); $$('#bkBody .slot[data-d="' + date + '"][data-s="' + slot + '"] div[hidden]').forEach(function(x){ x.hidden = false; }); });
 }
 function cancelBk(id){
   confirmBox('ยกเลิกเวร', 'ต้องการยกเลิกเวรนี้ใช่หรือไม่', 'ยกเลิกเวร', true).then(function(ok){
-    if (ok) api('cancelBooking', { id: id }).then(function(b){ notify('ยกเลิกเวรเรียบร้อย'); var y = window.scrollY; renderBoard(b); window.scrollTo({ top: y, behavior: 'instant' }); }).catch(function(){});
+    if (!ok) return;
+    var chip = document.querySelector('#bkBody .chip[data-id="' + id + '"]'), pid = S.bkPid, ym = S.bkYm;
+    if (chip) { chip.classList.add('saving'); chip.style.textDecoration = 'line-through'; }
+    savingChip(1);
+    api('cancelBooking', { id: id }).then(function(b){
+      savingChip(-1, true); notify('ยกเลิกเวรเรียบร้อย');
+      if (S.page === 'booking' && S.bkPid === pid && S.bkYm === ym && S.bkMode !== 'sheet' && $('bkBody')) drawBoardKeep(b);
+    }).catch(function(){ savingChip(-1, false); if (chip) { chip.classList.remove('saving'); chip.style.textDecoration = ''; } });
   });
 }
 function approveSched(btn){
@@ -421,7 +461,7 @@ function loadOv(){
   $('ovQBox').hidden = S.ovMode === 'sheet';
   var pid = $('ovPos').value || 'all';
   if (S.ovMode === 'sheet') return api('getScheduleGrid', { ym: $('ovYm').value, positionId: pid, scope: 'all' }).then(function(g){ $('ovBody').innerHTML = demoBanner(g.ym) + histNote(g) + '<div id="ovGrid"></div>'; renderGrid('ovGrid', g, loadOv); }).catch(function(){});
-  api('getScheduleOverview', { ym: $('ovYm').value }, { fresh: true, onCache: function(d){ S._ov = d; drawOv(); } }).then(function(d){ S._ov = d; drawOv(); }).catch(function(){});
+  var ovYmNow = $('ovYm').value; apiView('getScheduleOverview', { ym: ovYmNow }, function(d){ if (!$('ovYm') || $('ovYm').value !== ovYmNow) return; S._ov = d; drawOv(); }).catch(function(){});
 }
 /** v1.2569.2 ป้ายบอกว่าเป็นตารางเวรย้อนหลัง (ดูได้อย่างเดียว) */
 function histNote(d){
@@ -470,7 +510,7 @@ PAGES.entry = function(){
       '<li><a class="dropdown-item" href="#" onclick="printEntry(\'all\');return false"><i class="bi bi-list-ul me-2"></i>ทุกรายการที่แสดง (แยกตามตำแหน่ง)</a></li>' +
       '<li><a class="dropdown-item" href="#" onclick="printEntry(\'prob\');return false"><i class="bi bi-exclamation-triangle me-2"></i>เฉพาะรายการที่มีปัญหา</a></li>' +
       '<li><a class="dropdown-item" href="#" onclick="printEntry(\'types\');return false"><i class="bi bi-funnel me-2"></i>เลือกประเภทปัญหา…</a></li>' +
-      '<li><hr class="dropdown-divider"></li><li><h6 class="dropdown-header">ใบลงชื่อ FM-HRM-031 (PDF)</h6></li>' +
+      '<li><hr class="dropdown-divider"></li><li><h6 class="dropdown-header">ใบลงชื่อ FM-HRM-031 (พิมพ์ / บันทึก PDF)</h6></li>' +
       '<li><a class="dropdown-item" href="#" onclick="signSheets(false);return false"><i class="bi bi-people me-2"></i>พิมพ์ตามตารางเวร</a></li><li><a class="dropdown-item" href="#" onclick="signSheets(true);return false"><i class="bi bi-file-earmark me-2"></i>พิมพ์แบบไม่มีรายชื่อ</a></li></ul></div>') +
     '<div class="filters">' + ymSelect('enYm', S.ym, 3, 1) + posSelect('enPos', ids, S.enPid || (ids.length > 1 ? 'all' : S.pid), ids.length > 1, 'ภาพรวมทุกตำแหน่งที่ท่านบันทึก') +
     '<div><label class="form-label">มุมมอง</label><div class="seg" id="enView"><button data-v="list"' + (S.enView !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-list-ul"></i> ดูรวม</button><button data-v="sheet"' + (S.enView === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-file-earmark-text"></i> ดูเป็นใบ</button></div></div>' +
@@ -494,13 +534,29 @@ PAGES.entry = function(){
   loadEntry();
 };
 function enGuard(cb){
-  var dirty = Object.keys(S.enRows || {}).filter(function(k){ return S.enRows[k].dirty; }).length;
+  var dirty = Object.keys(S.enRows || {}).filter(function(k){ return S.enRows[k].dirty && !S.enRows[k].saving; }).length;
   if (!dirty) return cb(true);
   confirmBox('มีรายการที่ยังไม่ได้บันทึก', dirty + ' แถวที่แก้ไขแล้วยังไม่ได้กดบันทึก ต้องการออกจากหน้านี้โดยไม่บันทึกใช่หรือไม่', 'ออกโดยไม่บันทึก', true).then(cb);
 }
 function loadEntry(keep){
   S.ym = $('enYm').value; S.enPid = $('enPos').value;
-  return api('getEntrySheet', { ym: S.ym, positionId: S.enPid }).then(function(d){ S._en = d; buildRows(keep); renderEntry(true); }).catch(function(){});
+  var ym = S.ym, pid = S.enPid, n = 0;
+  var draw = function(d){
+    if (S.ym !== ym || S.enPid !== pid || !$('enBody')) return;
+    var first = n++ === 0, fo = enFocus();
+    S._en = d; buildRows(first ? keep : true); renderEntry(first);
+    enRestoreFocus(fo);
+  };
+  // หลังบันทึก/ลบ (keep) โหลดข้อมูลล่าสุดตรง ๆ · เปิดหน้า/เปลี่ยนตัวกรอง แสดงข้อมูลที่จำไว้ก่อน แล้วอัปเดตเบื้องหลัง
+  if (keep) return api('getEntrySheet', { ym: ym, positionId: pid }, { fresh: true }).then(draw).catch(function(){});
+  return apiView('getEntrySheet', { ym: ym, positionId: pid }, draw).catch(function(){});
+}
+/** จำช่องที่กำลังพิมพ์ แล้วคืนโฟกัสหลังวาดตารางใหม่ (ข้อมูลอัปเดตเบื้องหลังไม่ทำให้พิมพ์สะดุด) */
+function enFocus(){ var a = document.activeElement; if (!a || !a.dataset || !a.dataset.k || !$('enBody') || !$('enBody').contains(a)) return null; return { k: a.dataset.k, f: a.dataset.f, s: a.selectionStart, e: a.selectionEnd }; }
+function enRestoreFocus(fo){
+  if (!fo) return;
+  var el = document.querySelector('#enBody [data-k="' + fo.k + '"][data-f="' + fo.f + '"]'); if (!el) return;
+  el.focus({ preventScroll: true }); try { if (fo.s != null) el.setSelectionRange(fo.s, fo.e); } catch (e) { }
 }
 function enPos(pid){ return S._en.positions[pid] || {}; }
 function enEditable(pid){ return !!S._en.editablePos[pid]; }
@@ -516,14 +572,14 @@ function buildRows(keep){
       var k = 'r_' + r.id, o = old[k];
       rows[k] = { key: k, id: r.id, pid: r.positionId, date: x.date, empCode: r.empCode, name: r.name, slot: sch ? sch.slot : '', note: r.note, sheetNo: r.sheetNo,
         tin: o && o.dirty ? o.tin : r.timeIn, tout: o && o.dirty ? o.tout : r.timeOut, noClaim: o && o.dirty ? o.noClaim : r.noClaim, noClaimReason: o && o.dirty ? o.noClaimReason : r.noClaimReason, unit: o && o.dirty ? o.unit : r.unit,
-        rec: r, scans: r.scanTimes ? r.scanTimes.split(' ') : (sch ? sch.scans : null), inactive: r.empStatus === 'INACTIVE', dirty: !!(o && o.dirty), sel: !!(o && o.sel), err: '' };
+        rec: r, scans: r.scanTimes ? r.scanTimes.split(' ') : (sch ? sch.scans : null), inactive: r.empStatus === 'INACTIVE', dirty: !!(o && o.dirty), sel: !!(o && o.sel), saving: !!(o && o.saving), err: '' };
       order.push(k);
     });
     x.scheduled.forEach(function(s){
       if (recorded[s.positionId + '|' + s.empCode]) return;
       var k = 's_' + x.date + '_' + s.positionId + '_' + s.empCode, o = old[k];
       rows[k] = { key: k, pid: s.positionId, date: x.date, empCode: s.empCode, name: s.name, slot: s.slot, note: s.note, sheetNo: String(s.sheetNo), pending: s.status === 'PENDING',
-        tin: o ? o.tin : '', tout: o ? o.tout : '', noClaim: o ? o.noClaim : false, noClaimReason: o ? o.noClaimReason : '', unit: o ? o.unit : unitFromNote(s.note, s.positionId), scans: s.scans, covered: s.covered, dirty: !!(o && o.dirty), sel: !!(o && o.sel), err: o ? o.err : '' };
+        tin: o ? o.tin : '', tout: o ? o.tout : '', noClaim: o ? o.noClaim : false, noClaimReason: o ? o.noClaimReason : '', unit: o ? o.unit : unitFromNote(s.note, s.positionId), scans: s.scans, covered: s.covered, dirty: !!(o && o.dirty), sel: !!(o && o.sel), saving: !!(o && o.saving), err: o ? o.err : '' };
       order.push(k);
     });
   });
@@ -647,7 +703,7 @@ function renderEntry(first){
 }
 function rowHtml(r, unitCol, showDate){
   var ed = enEditable(r.pid) || (r.isNewRow && S._en.editable);
-  var k = r.key, cls = (r.inactive ? 'inactive ' : '') + (r.dirty ? 'row-dirty ' : '') + (r.err ? 'row-err ' : '') + (r.sel ? 'row-sel' : '');
+  var k = r.key, cls = (r.inactive ? 'inactive ' : '') + (r.dirty ? 'row-dirty ' : '') + (r.err ? 'row-err ' : '') + (r.saving ? 'row-saving ' : '') + (r.sel ? 'row-sel' : '');
   var sub = esc(r.empCode) + (r.slot ? ' · ตาราง <span class="tag">' + esc(lbl(r.slot)) + '</span>' : ' · <span class="text-warning">นอกตาราง</span>') + (r.pending ? ' · รออนุมัติ' : '') + (r.note ? ' · ' + esc(r.note) : '');
   var who = '<div class="who"><b>' + esc(r.name) + '</b><small>' + (showDate ? TH_D[dowOf(r.date)] + ' ' + thDate(r.date) + ' · ' : '') + sub + '</small>' + (S._en.multi ? '<span class="tag mt-1">' + esc(enPos(r.pid).name) + '</span>' : '') + '</div>';
   if (r.isNewRow) {
@@ -768,15 +824,32 @@ function updateRecInBoard(rec){
   refreshRows([k]);
 }
 function saveSelected(btn){
-  var ks = selectedKeys().filter(function(k){ var r = S.enRows[k]; return !(r.rec && !r.dirty); });
+  var ks = selectedKeys().filter(function(k){ var r = S.enRows[k]; return !(r.rec && !r.dirty) && !r.saving; });
   if (!ks.length) return notify('ยังไม่ได้เลือกแถวที่ต้องบันทึก (ติ๊กช่องหน้าแถว หรือแก้ไขเวลาแล้วระบบจะเลือกให้)', 'info');
   var missing = ks.filter(function(k){ var r = S.enRows[k]; return !normT(r.tin) || !normT(r.tout) || !r.empCode; });
   if (missing.length) { missing.forEach(function(k){ S.enRows[k].err = 'กรุณาระบุบุคลากรและเวลาเข้า–ออกให้ครบ'; }); refreshRows(missing); return alertBox('ข้อมูลยังไม่ครบถ้วน', missing.length + ' แถวยังไม่มีเวลาเข้า–ออก (แถวที่มีข้อความสีแดง)', 'warning'); }
   var items = ks.map(function(k){ var r = S.enRows[k]; return { key: k, id: r.id || '', date: r.date, positionId: r.pid, empCode: r.empCode, sheetNo: r.sheetNo, timeIn: normT(r.tin), timeOut: normT(r.tout), noClaim: !!r.noClaim, noClaimReason: r.noClaim ? (r.noClaimReason || '') : '', note: r.note || '', unit: r.unit || '' }; });
-  api('saveRecords', { items: items }, { btn: btn, btnText: 'กำลังบันทึก ' + items.length + ' แถว', block: items.length > 15 ? 'กำลังบันทึก ' + items.length + ' แถว…' : '' }).then(function(res){
+  // 29 ก.ย. 69 บันทึกเบื้องหลัง: แถวที่ส่งแล้วขึ้นสีเหลือง "กำลังบันทึก…" ผู้ใช้กรอกแถวอื่นต่อได้ทันที ไม่ต้องรอ
+  var sent = {}, ym0 = S.ym, pid0 = S.enPid;
+  ks.forEach(function(k){ var r = S.enRows[k]; r.saving = true; r.sel = false; sent[k] = JSON.stringify([r.tin, r.tout, r.noClaim, r.noClaimReason, r.unit, r.sheetNo, r.empCode, r.pid]); var tr = $('tr_' + k); if (tr) { tr.classList.add('row-saving'); tr.classList.remove('row-sel'); var c = tr.querySelector('.en-sel'); if (c) c.checked = false; } });
+  enBar(); savingChip(1);
+  var stillHere = function(){ return S.page === 'entry' && S.ym === ym0 && S.enPid === pid0 && $('enBody'); };
+  api('saveRecords', { items: items }).then(function(res){
+    savingChip(-1, !res.failed);
+    ks.forEach(function(k){ if (S.enRows[k]) S.enRows[k].saving = false; var tr = $('tr_' + k); if (tr) tr.classList.remove('row-saving'); });
+    if (!stillHere()) { if (res.failed) alertBox('บันทึกแล้ว ' + res.saved + ' แถว · ไม่สำเร็จ ' + res.failed + ' แถว', 'กรุณากลับไปที่หน้าบันทึกเวลาเพื่อแก้ไขแถวที่ไม่สำเร็จ', 'warning'); else notify('บันทึกเรียบร้อย ' + res.saved + ' แถว'); return; }
     var changed = [], replaced = false;
     res.results.forEach(function(x){
       var r = S.enRows[x.key]; if (!r) return;
+      // ถ้าผู้ใช้แก้แถวนี้ต่อระหว่างรอบันทึก → เก็บค่าที่แก้ใหม่ไว้ (ให้กดบันทึกอีกครั้ง)
+      var editedAgain = sent[x.key] !== JSON.stringify([r.tin, r.tout, r.noClaim, r.noClaimReason, r.unit, r.sheetNo, r.empCode, r.pid]);
+      if (x.ok && editedAgain) {
+        var rec0 = x.rec, nk0 = 'r_' + rec0.id;
+        r.id = rec0.id; r.rec = rec0; r.dirty = true; r.sel = true;
+        if (nk0 !== x.key) { delete S.enRows[x.key]; r.key = nk0; S.enRows[nk0] = r; S.enOrder = S.enOrder.map(function(k){ return k === x.key ? nk0 : k; }); var tr0 = $('tr_' + x.key); if (tr0) tr0.id = 'tr_' + nk0; else replaced = true; }
+        var day0 = dayOf(rec0.date); if (day0) { day0.records = day0.records.filter(function(y){ return y.id !== rec0.id; }); day0.records.push(rec0); }
+        changed.push(nk0); return;
+      }
       if (x.ok) {
         var rec = x.rec, nk = 'r_' + rec.id;
         var nr = recToRow(rec, r);
@@ -791,7 +864,11 @@ function saveSelected(btn){
     changed.forEach(function(k){ var tr = $('tr_' + k); if (tr && S.enRows[k] && S.enRows[k].rec && !S.enRows[k].err) tr.classList.add('row-saved'); });
     if (res.failed) alertBox('บันทึกแล้ว ' + res.saved + ' แถว · ไม่สำเร็จ ' + res.failed + ' แถว', 'แถวที่ไม่สำเร็จแสดงเหตุผลเป็นข้อความสีแดงใต้ชื่อ กรุณาแก้ไขแล้วกดบันทึกอีกครั้ง', 'warning');
     else notify('บันทึกเรียบร้อย ' + res.saved + ' แถว');
-  }).catch(function(){});
+  }).catch(function(){
+    savingChip(-1, false);
+    ks.forEach(function(k){ var r = S.enRows[k]; if (r) { r.saving = false; r.sel = true; } var tr = $('tr_' + k); if (tr) { tr.classList.remove('row-saving'); tr.classList.add('row-sel'); var c = tr.querySelector('.en-sel'); if (c) c.checked = true; } });
+    if (stillHere()) enBar();
+  });
 }
 function delRec(id){
   var r = S.enRows['r_' + id] || {};
@@ -852,7 +929,7 @@ function pullScans(btn){
 function signSheets(blank){
   var pid = S.enPid === 'all' ? null : S.enPid;
   if (!pid) return alertBox('กรุณาเลือกตำแหน่ง', 'การพิมพ์ใบลงชื่อ กรุณาเลือกทีละตำแหน่ง', 'info');
-  api('exportSignSheets', { ym: S.ym, positionId: pid, blank: blank }, { block: 'กำลังจัดทำใบลงชื่อ…' }).then(function(r){ download(r.files); }).catch(function(){});
+  api('printSignSheets', { ym: S.ym, positionId: pid, blank: blank }, { block: 'กำลังเตรียมใบลงชื่อสำหรับพิมพ์…' }).then(printSignDoc).catch(function(){});
 }
 
 /* ---------- v1.3 มุมมอง "ดูเป็นใบ" (เหมือนใบลงชื่อ FM-HRM-031: 1 ใบ = 1 ลำดับคนต่อวัน ทั้งเดือน) ---------- */
@@ -946,7 +1023,7 @@ function printPaper(all){
 function sheetRowHtml(r, x, k0){
   x = x || dayOf(r.date) || {};
   var ed = enEditable(r.pid) || (r.isNewRow && S._en.editable);
-  var k = r.key, cls = (r.inactive ? 'inactive ' : '') + (r.dirty ? 'row-dirty ' : '') + (r.err ? 'row-err ' : '') + (r.sel ? 'row-sel ' : '') + dk(x.color);
+  var k = r.key, cls = (r.inactive ? 'inactive ' : '') + (r.dirty ? 'row-dirty ' : '') + (r.err ? 'row-err ' : '') + (r.sel ? 'row-sel ' : '') + (r.saving ? 'row-saving ' : '') + dk(x.color);
   var who = '<div class="who"><b>' + esc(r.name) + '</b><small>' + (r.slot ? 'ตาราง <span class="tag">' + esc(lbl(r.slot)) + '</span>' : '<span class="text-warning">นอกตาราง</span>') + (r.note ? ' · ' + esc(r.note) : '') + '</small></div>';
   if (r.isNewRow) who = '<select class="form-select form-select-sm" data-search data-k="' + k + '" data-f="emp"><option value="">— เลือกบุคลากร —</option>' +
     S._en.employees.filter(function(e){ return !e.allowed.length || e.allowed.indexOf(r.pid) >= 0; }).map(function(e){ return '<option value="' + e.empCode + '" data-sub="' + e.empCode + '"' + (e.empCode === r.empCode ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('') + '</select>';
@@ -1046,7 +1123,7 @@ PAGES.submit = function(){
   $$('#sbSeg button').forEach(function(b){ b.onclick = function(){ $$('#sbSeg button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); S.sbF = b.dataset.f; drawSubmit(); }; });
   loadSubmit();
 };
-function loadSubmit(){ api('getSubmitBoard', { ym: S.ym }, { fresh: true, onCache: function(d){ S._sb = d; drawSubmit(); } }).then(function(d){ S._sb = d; drawSubmit(); }).catch(function(){}); }
+function loadSubmit(){ var ym = S.ym; apiView('getSubmitBoard', { ym: ym }, function(d){ if (S.ym !== ym) return; S._sb = d; drawSubmit(); }).catch(function(){}); }
 function drawSubmit(){
   var d = S._sb; if (!d || !$('sbBody')) return;
   $('sbInfo').innerHTML = '<i class="bi bi-send"></i> ' + esc(d.submitWindow.text) + '<br><i class="bi bi-fingerprint"></i> สแกนล่าสุด ' + esc(d.lastScanSync || '-');
@@ -1107,7 +1184,7 @@ PAGES.review = function(){
   $('rvQ').oninput = drawApproval; $('rvFix').onchange = drawApproval;
   loadApproval();
 };
-function loadApproval(){ api('getApprovalBoard', { ym: S.ym }, { fresh: true, onCache: function(d){ S._ap = d; drawApproval(); } }).then(function(d){ S._ap = d; drawApproval(); }).catch(function(){}); }
+function loadApproval(){ var ym = S.ym; apiView('getApprovalBoard', { ym: ym }, function(d){ if (S.ym !== ym) return; S._ap = d; drawApproval(); }).catch(function(){}); }
 function drawApproval(){
   var d = S._ap; if (!d || !$('rvBody')) return;
   var cnt = {}; d.positions.forEach(function(p){ cnt[p.status] = (cnt[p.status] || 0) + 1; });
@@ -1289,7 +1366,7 @@ PAGES.followup = function(){
   loadFollow();
 };
 function loadFollow(btn){
-  api('getFollowup', { ym: $('fuYm').value, positionIds: [$('fuPos').value] }, { btn: btn, fresh: true, onCache: function(d){ S._fu = d; drawFollow(); } }).then(function(d){ S._fu = d; drawFollow(); }).catch(function(){});
+  var fk = $('fuYm').value + '|' + $('fuPos').value; apiView('getFollowup', { ym: $('fuYm').value, positionIds: [$('fuPos').value] }, function(d){ if (!$('fuYm') || $('fuYm').value + '|' + $('fuPos').value !== fk) return; S._fu = d; drawFollow(); }, { btn: btn }).catch(function(){});
 }
 function fuItems(){
   var d = S._fu, q = ($('fuQ').value || '').trim().toLowerCase();
@@ -1339,24 +1416,24 @@ function fuPrint(){
 PAGES.export = function(){
   var ids = posIdsFor(['ENTRY', 'REVIEWER', 'COORD', 'MANAGER']);
   var xl = S.boot.canExcel;
-  var h = pageHead('งานประจำเดือน', 'จัดพิมพ์และส่งออกเอกสาร', 'เอกสารจะดาวน์โหลดลงเครื่องของท่านทันที และระบบเก็บสำเนาทุกฉบับไว้ในคลังเอกสาร (Google Drive) โดยไม่เขียนทับฉบับเดิม') +
+  var h = pageHead('งานประจำเดือน', 'จัดพิมพ์และส่งออกเอกสาร', 'กด "พิมพ์" แล้วหน้าต่างพิมพ์จะขึ้นทันที (ต้องการไฟล์ ให้เลือกเครื่องพิมพ์เป็น "บันทึกเป็น PDF") · ไฟล์ HRMi ดาวน์โหลดลงเครื่อง · ระบบไม่เก็บสำเนาไว้ใน Drive') +
     '<div class="filters">' + ymSelect('exYm', S.ym, 14, 2, 'รอบเดือน') + '</div><div id="exDemo"></div><div class="row g-3">';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-brand"><i class="bi bi-table"></i></div><div><h3>ตารางเวรและตาราง OT</h3><div class="sub">รูปแบบเดียวกับเอกสารแนบเบิก มีช่องลงนามผู้ตรวจสอบและผู้รับรอง</div></div></div><div class="card-b">' +
     posSelect('exPos', ids, 'all', true) +
     '<div class="mt-2"><label class="form-label">ประเภทเอกสาร</label><div class="seg w-100" id="exDoc"><button type="button" data-v="duty">ตารางเวร</button><button type="button" data-v="ot">ตาราง OT</button><button type="button" data-v="both" class="on">ทั้งสองแบบ</button></div></div>' +
     '<div class="mt-2"><label class="form-label" for="exKind">ฉบับ</label><select class="form-select" id="exKind"><option value="pay">ฉบับเบิกจ่าย (แสดงจำนวนเงิน)</option><option value="check">ฉบับตรวจสอบ (ไม่แสดงจำนวนเงิน)</option></select></div>' +
-    '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exTables(\'pdf\',this)"><i class="bi bi-filetype-pdf"></i> ดาวน์โหลด PDF</button>' +
+    '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exTables(\'pdf\',this)"><i class="bi bi-printer"></i> พิมพ์ / บันทึก PDF</button>' +
     (xl ? '<button class="btn btn-ghost" onclick="exTables(\'xlsx\',this)"><i class="bi bi-file-earmark-excel"></i> ดาวน์โหลด Excel</button>' : '<span class="small-muted align-self-center"><i class="bi bi-lock"></i> ไฟล์ Excel สำหรับผู้ดูแลระบบเท่านั้น</span>') + '</div>' +
     '<div class="small-muted mt-2">ตำแหน่งที่ยังไม่อนุมัติ เอกสารจะมีข้อความ "ฉบับร่าง – ยังไม่ได้รับอนุมัติ" · มีเลขหน้าและข้อมูลผู้จัดพิมพ์ทุกหน้า</div></div></div></div>';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-info"><i class="bi bi-pen"></i></div><div><h3>ใบลงชื่อปฏิบัติงาน FM-HRM-031</h3><div class="sub">พิมพ์ได้ทุกตำแหน่งพร้อมกัน จำนวนใบตามกรอบเวรที่คลินิกกำหนด</div></div></div><div class="card-b">' +
     posSelect('exSignPos', ids, 'all', true, 'ทุกตำแหน่งที่ท่านดูแล') +
     '<div class="mt-2"><label class="form-label">รายชื่อในใบ</label><div class="seg w-100" id="exSignMode"><button type="button" data-v="names" class="on">ใส่รายชื่อตามตารางเวร</button><button type="button" data-v="blank">ไม่ใส่รายชื่อ (ใบเปล่า)</button></div></div>' +
     '<div class="mt-2" id="exSheetsBox" hidden><label class="form-label" for="exSheets">จำนวนใบ (ไม่ระบุ = ตามกรอบเวร)</label><input class="form-control" id="exSheets" type="number" min="1" max="40" style="max-width:140px"></div>' +
-    '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exSign(\'pdf\',this)"><i class="bi bi-filetype-pdf"></i> ดาวน์โหลด PDF</button>' +
+    '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exSign(\'pdf\',this)"><i class="bi bi-printer"></i> พิมพ์ / บันทึก PDF</button>' +
     (xl ? '<button class="btn btn-ghost" onclick="exSign(\'xlsx\',this)"><i class="bi bi-file-earmark-excel"></i> ดาวน์โหลด Excel</button>' : '') + '</div>' +
     '<div class="small-muted mt-2">ตัวอย่าง: กรอบพยาบาลเดือนนี้สูงสุด 7 คน → ได้ใบที่ 1–7 · วันที่กรอบน้อยกว่า (เช่น 5 คน) ใบที่ 6–7 ของวันนั้นเป็นช่องสีเทาทึบ ห้ามลงชื่อ · วันปิดคลินิกทึบทั้งแถว</div></div></div></div>';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-warn"><i class="bi bi-paperclip"></i></div><div><h3>ใบลืมสแกนรวมเล่ม</h3><div class="sub">รวมไฟล์แนบทั้งเดือนเป็น PDF ไฟล์เดียว พร้อมหัวกระดาษระบุรายการ</div></div></div><div class="card-b">' + posSelect('exAttPos', ids, 'all', true) +
-    '<div class="mt-3"><button class="btn btn-brand" onclick="printAttachments($(\'exYm\').value,$(\'exAttPos\').value)"><i class="bi bi-printer"></i> รวมเป็น PDF และดาวน์โหลด</button></div><div class="small-muted mt-2">เรียงตามตำแหน่งและวันที่ · ไฟล์รูปและ PDF รวมอยู่ในเล่มเดียว</div></div></div></div>';
+    '<div class="mt-3"><button class="btn btn-brand" onclick="printAttachments($(\'exYm\').value,$(\'exAttPos\').value)"><i class="bi bi-printer"></i> รวมเป็นเล่ม PDF เพื่อพิมพ์</button></div><div class="small-muted mt-2">เรียงตามตำแหน่งและวันที่ · ไฟล์รูปและ PDF รวมอยู่ในเล่มเดียว</div></div></div></div>';
   // 28 ก.ย. 69: ผู้บันทึกข้อมูลส่งออก HRMi ได้ (เฉพาะตำแหน่งที่ตนดูแล) · ประสานงาน/แอดมิน ทุกตำแหน่ง
   if (has('COORD') || has('ENTRY')) {
     var hrIds = has('COORD') ? S.boot.positions.filter(function(p){ return p.paid !== false; }).map(function(p){ return p.id; }) : posIdsFor(['ENTRY']).filter(function(id){ var p = posOf(id); return p && p.paid !== false; });
@@ -1380,10 +1457,16 @@ PAGES.export = function(){
 };
 function exTables(fmt2, btn){
   var on = $$('#exDoc .on')[0], doc = on ? on.dataset.v : 'both';
+  // 29 ก.ย. 69: PDF = พิมพ์จากเบราว์เซอร์ทันที (ไม่สร้างไฟล์ที่เซิร์ฟเวอร์) · Excel (ผู้ดูแลระบบ) ยังสร้างที่เซิร์ฟเวอร์
+  if (fmt2 !== 'xlsx') return api('printTables', { ym: $('exYm').value, positionIds: [$('exPos').value], docType: doc, kind: $('exKind').value }, { btn: btn, block: 'กำลังเตรียมเอกสารสำหรับพิมพ์…' }).then(printTablesDoc).catch(function(){});
   api('exportTables', { ym: $('exYm').value, positionIds: [$('exPos').value], docType: doc, kind: $('exKind').value, format: fmt2 }, { btn: btn, timeout: 360000, block: 'กำลังจัดทำเอกสาร อาจใช้เวลา 10–90 วินาที…' }).then(function(r){ download(r.files); }).catch(function(){});
 }
 function exSign(fmt2, btn){
   var on = $$('#exSignMode .on')[0], blank = on && on.dataset.v === 'blank', pid = $('exSignPos').value || 'all';
+  if (fmt2 !== 'xlsx') return api('printSignSheets', { ym: $('exYm').value, positionId: pid, blank: blank, sheets: pid === 'all' ? '' : $('exSheets').value }, { btn: btn, block: 'กำลังเตรียมใบลงชื่อสำหรับพิมพ์…' }).then(function(r){
+    if (r.positions > 1 || r.skipped) notify('ใบลงชื่อ ' + r.sheets + ' ใบ' + (r.positions > 1 ? ' (' + r.positions + ' ตำแหน่ง)' : '') + (r.skipped ? ' · ข้าม ' + r.skipped + ' ตำแหน่งที่ไม่มีกรอบเวร' : ''), 'info');
+    return printSignDoc(r);
+  }).catch(function(){});
   api('exportSignSheets', { ym: $('exYm').value, positionId: pid, blank: blank, sheets: pid === 'all' ? '' : $('exSheets').value, format: fmt2 },
     { btn: btn, timeout: 360000, block: pid === 'all' ? 'กำลังจัดทำใบลงชื่อทุกตำแหน่ง อาจใช้เวลา 1–3 นาที…' : 'กำลังจัดทำใบลงชื่อ…' }).then(function(r){
     download(r.files);
@@ -1446,9 +1529,21 @@ function savePosSigners(btn){
   api('savePosSigners', { items: changed }, { btn: btn }).then(function(d){ S._ps = d; drawPosSigners(); notify('บันทึกผู้ตรวจสอบ ' + changed.length + ' ตำแหน่งเรียบร้อย'); }).catch(function(){});
 }
 function exHRMi(btn){
-  var hp = $('hrPos') ? $('hrPos').value : 'all';
-  api('exportHRMi', { ym: $('exYm').value, type: $('hrType').value, mode: $('hrMode').value, positionIds: hp && hp !== 'all' ? [hp] : [] }, { btn: btn, block: 'กำลังจัดทำไฟล์ HRMi…' }).then(function(r){
-    download(r.files);
+  var hp = $('hrPos') ? $('hrPos').value : 'all', mode = $('hrMode').value;
+  // 29 ก.ย. 69: เซิร์ฟเวอร์ส่งเฉพาะตัวเลข หน้าเว็บสร้างไฟล์ .xlsx ในเครื่อง (เร็วขึ้นมาก ไม่ต้องสร้าง Google Sheet ชั่วคราว)
+  api('hrmiData', { ym: $('exYm').value, type: $('hrType').value, mode: mode, positionIds: hp && hp !== 'all' ? [hp] : [] }, { btn: btn }).then(function(r){
+    var toSheet = function(x){ return { name: x.code, rows: [r.header].concat(x.rows.map(function(row){ return [/^\d+$/.test(String(row[0])) ? +row[0] : row[0]].concat(row.slice(1)); })) }; };
+    var files;
+    if (mode === 'combined') files = [{ name: r.tag + '.xlsx', blob: xlsxBlob(r.sheets.map(toSheet)) }];
+    else {
+      files = r.sheets.map(function(x){ return { name: x.code + '.xlsx', blob: xlsxBlob([toSheet(x)]) }; });
+      if (mode === 'zip') return Promise.all(files.map(function(f){ return f.blob.arrayBuffer(); })).then(function(bufs){
+        downloadBlobs([{ name: r.tag + '.zip', blob: zipBlob(files.map(function(f, i){ return { name: f.name, data: new Uint8Array(bufs[i]) }; })) }]); return r;
+      });
+    }
+    downloadBlobs(files); return r;
+  }).then(function(r){
+    if (!r || !$('hrRes')) return;
     $('hrRes').innerHTML = 'รหัสรายได้: ' + esc(r.codes.join(', ')) + (r.notApproved.length ? '<div class="text-danger">ยังไม่อนุมัติ (ไม่รวมในไฟล์): ' + esc(r.notApproved.join(', ')) + '</div>' : '');
   }).catch(function(){});
 }
