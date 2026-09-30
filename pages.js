@@ -223,7 +223,8 @@ function loadBoard(){
   S.bkMode = S.bkMode || store('smc_bkMode') || 'cal';
   if (!S.bkPid) { $('bkBody').innerHTML = empty('calendar-x', 'ยังไม่มีตำแหน่งที่ท่านดูตารางเวรได้ โปรดติดต่อผู้ดูแลระบบ'); return; }
   if (S.bkMode === 'sheet') {
-    return api('getScheduleGrid', { ym: S.bkYm, positionId: S.bkPid, scope: 'view' }).then(function(g){ $('bkBody').innerHTML = demoBanner(g.ym) + '<div id="bkGrid"></div>'; renderGrid('bkGrid', g, loadBoard); }).catch(function(){});
+    var gy = S.bkYm, gp = S.bkPid;
+    return gridView({ ym: gy, positionId: gp, scope: 'view' }, function(){ return S.page === 'booking' && S.bkMode === 'sheet' && S.bkYm === gy && S.bkPid === gp && $('bkBody'); }, function(g){ $('bkBody').innerHTML = demoBanner(g.ym) + '<div id="bkGrid"></div>'; renderGrid('bkGrid', g, loadBoard); });
   }
   var ym = S.bkYm, pid = S.bkPid, n = 0;
   apiView('getBookingBoard', { ym: ym, positionId: pid }, function(b){ if (S.bkYm !== ym || S.bkPid !== pid || !$('bkBody') || S.bkMode === 'sheet') return; drawBoardKeep(b, n++ > 0); }).catch(function(){});
@@ -254,6 +255,14 @@ function bkApplyPending(){
 }
 /* ---------- v1.3 ตารางเวรแบบ Google Sheet (ใช้ทั้งหน้าลงตารางเวรและตารางเวรรวม) ---------- */
 var GRID = null;
+/** 1 ต.ค. 69 ตารางแบบ Google Sheet: แสดงที่จำไว้ทันที แล้วอัปเดตเบื้องหลัง (ไม่วาดทับถ้ากำลังแก้ไขช่องอยู่) */
+function gridView(payload, still, draw){
+  return apiView('getScheduleGrid', payload, function(g){
+    if (!still()) return;
+    if (GRID && GRID.hasDirty() && document.body.contains($('sgCnt'))) return;
+    draw(g);
+  }).catch(function(){});
+}
 function gridGuard(cb){
   if (!GRID || !GRID.hasDirty() || !document.body.contains($('sgCnt'))) return cb();
   confirmBox('ยังไม่ได้บันทึกตาราง', 'มีช่องที่แก้ไขแล้วยังไม่ได้บันทึก ต้องการออกโดยไม่บันทึกใช่หรือไม่', 'ออกโดยไม่บันทึก', true).then(function(ok){ if (ok) { GRID = null; cb(); } });
@@ -447,7 +456,7 @@ function approveAll(btn){
 /* ================= ตารางเวรรวม ================= */
 PAGES.overview = function(){
   S.ovMode = S.ovMode || store('smc_ovMode') || 'card';
-  mount(pageHead('งานของฉัน', 'ตารางเวรรวม', 'ภาพรวมตารางเวรทุกตำแหน่งในเดือนที่เลือก พร้อมสถานะการบันทึกเวลาในแต่ละช่อง · สลับเป็น "แบบ Google Sheet" เพื่อแก้ไขตำแหน่งที่ท่านดูแล') + '<div class="filters">' + ymSelect('ovYm', S.ym, 36, 2, 'เดือน (ย้อนหลังได้ 3 ปี)') +
+  mount(pageHead('งานของฉัน', 'ตารางเวรรวม', 'ภาพรวมตารางเวรทุกตำแหน่งในเดือนที่เลือก พร้อมสถานะการบันทึกเวลาในแต่ละช่อง · สลับเป็น "แบบ Google Sheet" เพื่อแก้ไขตำแหน่งที่ท่านดูแล', '<button class="btn btn-ghost" onclick="rosterDlg()"><i class="bi bi-printer"></i> พิมพ์ตารางเวร (แจกหน่วยงาน)</button>') + '<div class="filters">' + ymSelect('ovYm', S.ym, 36, 2, 'เดือน (ย้อนหลังได้ 3 ปี)') +
     '<div><label class="form-label" for="ovPos">ตำแหน่ง</label><select class="form-select" data-search id="ovPos"><option value="all">' + (viewIds().length < S.boot.positions.length ? 'ทุกตำแหน่งที่ท่านเห็น' : 'ทุกตำแหน่ง') + '</option>' + S.boot.positions.filter(function(p){ return viewIds().indexOf(p.id) >= 0; }).map(function(p){ return '<option value="' + p.id + '" data-sub="' + esc(p.groupName || '') + '"' + (S.ovPid === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
     '<div><label class="form-label">มุมมอง</label><div class="seg" id="ovMode"><button type="button" data-v="card"' + (S.ovMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-view-stacked"></i> แยกตามตำแหน่ง</button><button type="button" data-v="sheet"' + (S.ovMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' +
     '<div id="ovQBox"><label class="form-label" for="ovQ">ค้นหาชื่อ / รหัส</label><input class="form-control" id="ovQ" placeholder="ชื่อ หรือรหัสเจ้าหน้าที่"></div></div><div id="ovBody">' + skeleton(6) + '</div>');
@@ -460,7 +469,7 @@ PAGES.overview = function(){
 function loadOv(){
   $('ovQBox').hidden = S.ovMode === 'sheet';
   var pid = $('ovPos').value || 'all';
-  if (S.ovMode === 'sheet') return api('getScheduleGrid', { ym: $('ovYm').value, positionId: pid, scope: 'all' }).then(function(g){ $('ovBody').innerHTML = demoBanner(g.ym) + histNote(g) + '<div id="ovGrid"></div>'; renderGrid('ovGrid', g, loadOv); }).catch(function(){});
+  if (S.ovMode === 'sheet') { var oy = $('ovYm').value; return gridView({ ym: oy, positionId: pid, scope: 'all' }, function(){ return S.page === 'overview' && S.ovMode === 'sheet' && $('ovYm') && $('ovYm').value === oy && ($('ovPos').value || 'all') === pid; }, function(g){ $('ovBody').innerHTML = demoBanner(g.ym) + histNote(g) + '<div id="ovGrid"></div>' + rosterBtn(g); renderGrid('ovGrid', g, loadOv); }); }
   var ovYmNow = $('ovYm').value; apiView('getScheduleOverview', { ym: ovYmNow }, function(d){ if (!$('ovYm') || $('ovYm').value !== ovYmNow) return; S._ov = d; drawOv(); }).catch(function(){});
 }
 /** v1.2569.2 ป้ายบอกว่าเป็นตารางเวรย้อนหลัง (ดูได้อย่างเดียว) */
@@ -512,7 +521,7 @@ PAGES.entry = function(){
       '<li><a class="dropdown-item" href="#" onclick="printEntry(\'types\');return false"><i class="bi bi-funnel me-2"></i>เลือกประเภทปัญหา…</a></li>' +
       '<li><hr class="dropdown-divider"></li><li><h6 class="dropdown-header">ใบลงชื่อ FM-HRM-031 (พิมพ์ / บันทึก PDF)</h6></li>' +
       '<li><a class="dropdown-item" href="#" onclick="signSheets(false);return false"><i class="bi bi-people me-2"></i>พิมพ์ตามตารางเวร</a></li><li><a class="dropdown-item" href="#" onclick="signSheets(true);return false"><i class="bi bi-file-earmark me-2"></i>พิมพ์แบบไม่มีรายชื่อ</a></li></ul></div>') +
-    '<div class="filters">' + ymSelect('enYm', S.ym, 3, 1) + posSelect('enPos', ids, S.enPid || (ids.length > 1 ? 'all' : S.pid), ids.length > 1, 'ภาพรวมทุกตำแหน่งที่ท่านบันทึก') +
+    '<div class="filters">' + ymSelect('enYm', S.ym, 3, 1) + posSelect('enPos', ids, S.enPid || (ids.indexOf(S.pid) >= 0 ? S.pid : usualFirst(ids)), ids.length > 1, 'ภาพรวมทุกตำแหน่งที่ท่านบันทึก') +
     '<div><label class="form-label">มุมมอง</label><div class="seg" id="enView"><button data-v="list"' + (S.enView !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-list-ul"></i> ดูรวม</button><button data-v="sheet"' + (S.enView === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-file-earmark-text"></i> ดูเป็นใบ</button></div></div>' +
     '<div><label class="form-label">แสดง</label><div class="seg" id="enSeg"><button data-f="all" class="on">ทั้งหมด</button><button data-f="todo">ยังไม่บันทึก</button><button data-f="prob">ต้องแก้ไข</button><button data-f="done">บันทึกแล้ว</button></div></div>' +
     '<div><label class="form-label" for="enQ">ค้นหาบุคลากร</label><input class="form-control" id="enQ" placeholder="ชื่อ หรือรหัส" style="min-width:170px"></div>' +
@@ -586,9 +595,32 @@ function buildRows(keep){
   Object.keys(old).forEach(function(k){ if (k.indexOf('n_') === 0 && !rows[k]) { rows[k] = old[k]; order.push(k); } });
   S.enRows = rows; S.enOrder = order;
 }
-function unitFromNote(note, pid){ if (!hasUnit(pid)) return ''; var n = String(note || '').trim().toLowerCase(); return UNITS.filter(function(u){ return u.toLowerCase() === n; })[0] || ''; }
+function unitFromNote(note, pid){ if (!hasUnit(pid)) return ''; var n = normUnit(note); return UNITS.indexOf(n) >= 0 ? n : ''; }
+/** 1 ต.ค. 69 จุดปฏิบัติงานรังสี: หน้างานพิมพ์ย่อ (ct, mri, mam, x, us) → ชื่อมาตรฐาน (ตรงกับ normUnit_ ใน Records.gs) */
+function normUnit(v){
+  var s = String(v || '').trim(); if (!s) return '';
+  var k = s.toLowerCase().replace(/[\s._\-\/]+/g, '');
+  if (/^(ct|ctscan|ซีที)/.test(k)) return 'CT Scan';
+  if (/^(mri|เอ็มอาร์ไอ)/.test(k)) return 'MRI';
+  if (/^(mam|mamo|mammo|mammogram|mammography|แมม|แมมโม)/.test(k)) return 'MAMMOGRAM';
+  if (/^(us|ultra|ultrasound|อัลตรา|อัลตร้า|อัลตราซาวด์|อัลตร้าซาวด์)/.test(k)) return 'ULTRASOUND';
+  if (/^(x|xray|xr|เอกซเรย์|เอ็กซเรย์|เอ็กซ์เรย์|เอกซ์เรย์)$/.test(k) || /^xray/.test(k)) return 'X-Ray';
+  return s;
+}
+/** 1 ต.ค. 69 เลขใบซ้ำ (คำนวณสดในหน้าเว็บ): ตำแหน่ง+วัน+ใบเดียวกัน มีมากกว่า 1 คน → คืน {key: [ชื่อคนอื่น]} */
+function sheetDups(){
+  var g = {}, out = {};
+  S.enOrder.forEach(function(k){ var r = S.enRows[k]; if (!r || !r.sheetNo || !r.empCode || !(r.rec || r.dirty)) return; var gk = r.pid + '|' + r.date + '|' + (+r.sheetNo); (g[gk] = g[gk] || []).push(r); });
+  Object.keys(g).forEach(function(gk){
+    var list = g[gk]; if (list.length < 2) return;
+    list.forEach(function(r){ var others = list.filter(function(o){ return o.empCode !== r.empCode; }); if (others.length) out[r.key] = others.map(function(o){ return o.name || o.empCode; }); });
+  });
+  return out;
+}
+function dupHtml(r){ var d = (S._dups || {})[r.key]; return d ? '<span class="flag bad dup-flag"><i class="bi bi-files"></i> เลขใบที่ ' + esc(r.sheetNo) + ' ซ้ำกับ ' + esc(d.join(', ')) + ' · ตรวจกับใบลงชื่อจริงแล้วแก้เลขใบ</span>' : ''; }
 function dayOf(date){ return S._en.days.filter(function(x){ return x.date === date; })[0]; }
 function rowState(r){
+  if ((S._dups || {})[r.key]) return 'prob';
   if (r.rec && !r.dirty) return (r.rec.blocking && r.rec.scanStatus !== S.boot.scan.PENDING) ? 'prob' : 'done';
   return 'todo';
 }
@@ -606,7 +638,7 @@ function previewHtml(r){
   if (r.rec && !r.dirty) {
     var rr = r.rec;
     return codesTag(rr.shiftCodes) + (rr.otHours ? ' <span class="tag">OT ' + fmt(rr.otHours, 1) + '</span>' : '') + (rr.noClaim ? ' <span class="flag">ไม่เบิก OT' + (rr.noClaimReason ? ': ' + esc(rr.noClaimReason) : '') + '</span>' : '') +
-      '<div class="mt-1">' + scanPill(rr.scanStatus, rr.lastScanOut) + '</div>' + rr.flags.map(function(f){ return '<span class="flag ' + (rr.blocking ? 'bad' : '') + '">' + esc(f) + '</span>'; }).join('');
+      '<div class="mt-1">' + scanPill(rr.scanStatus, rr.lastScanOut) + '</div>' + rr.flags.map(function(f, i){ var code = (rr.flagCodes || [])[i]; if (code === 'SHEET_DUP') return ''; return '<span class="flag ' + (rr.blocking && code !== 'UNIT_ODD' ? 'bad' : '') + '">' + esc(f) + '</span>'; }).join('') + dupHtml(r);
   }
   if (!r.tin && !r.tout) return '<span class="small-muted">ยังไม่บันทึก</span>';
   var c = RULES.compute(r.tin, r.tout, day.dayType, enPos(r.pid), S._en.rules);
@@ -616,7 +648,7 @@ function previewHtml(r){
   var h = codesTag(c.codes.join(',')) + (c.ot ? ' <span class="tag">OT ' + fmt(c.ot, 1) + '</span>' : '') + (c.cap ? ' <span class="flag">ตัด OT เหลือสูงสุด</span>' : '') +
     (c.noOt ? '<span class="flag">ตำแหน่งนี้ไม่มี OT (ไม่คิดส่วนที่เกิน)</span>' : '') + (r.noClaim ? '<span class="flag">ไม่เบิก OT' + (r.noClaimReason ? ': ' + esc(r.noClaimReason) : ' — ยังไม่ระบุเหตุผล') + '</span>' : '') +
     (c.odd ? '<span class="flag">เวลาเริ่มไม่ตรงเวลามาตรฐานของตำแหน่ง</span>' : '') + (closed ? '<span class="flag">ช่วงเวรนี้ไม่ได้เปิดให้ลงเวรในวันดังกล่าว</span>' : '');
-  h += '<div class="mt-1">' + scanCompare(r) + '</div>';
+  h += '<div class="mt-1">' + scanCompare(r) + '</div>' + dupHtml(r);
   return h + '<span class="small-muted">' + (r.dirty ? 'แก้ไขแล้ว · ยังไม่บันทึก' : '') + '</span>';
 }
 function scanCompare(r){
@@ -651,6 +683,7 @@ function enHeadHtml(){
 }
 function renderEntry(first){
   var d = S._en; if (!d) return;
+  S._dups = sheetDups();
   if (S.enView === 'sheet') return renderSheetView(first);
   if ($('enSortBox')) $('enSortBox').hidden = false;
   var y = window.scrollY;
@@ -705,7 +738,7 @@ function rowHtml(r, unitCol, showDate){
   var ed = enEditable(r.pid) || (r.isNewRow && S._en.editable);
   var k = r.key, cls = (r.inactive ? 'inactive ' : '') + (r.dirty ? 'row-dirty ' : '') + (r.err ? 'row-err ' : '') + (r.saving ? 'row-saving ' : '') + (r.sel ? 'row-sel' : '');
   var sub = esc(r.empCode) + (r.slot ? ' · ตาราง <span class="tag">' + esc(lbl(r.slot)) + '</span>' : ' · <span class="text-warning">นอกตาราง</span>') + (r.pending ? ' · รออนุมัติ' : '') + (r.note ? ' · ' + esc(r.note) : '');
-  var who = '<div class="who"><b>' + esc(r.name) + '</b><small>' + (showDate ? TH_D[dowOf(r.date)] + ' ' + thDate(r.date) + ' · ' : '') + sub + '</small>' + (S._en.multi ? '<span class="tag mt-1">' + esc(enPos(r.pid).name) + '</span>' : '') + '</div>';
+  var who = '<div class="who"><b>' + esc(r.name) + whoEditBtn(r, ed) + '</b><small>' + (showDate ? TH_D[dowOf(r.date)] + ' ' + thDate(r.date) + ' · ' : '') + sub + '</small>' + (S._en.multi ? '<span class="tag mt-1">' + esc(enPos(r.pid).name) + '</span>' : '') + '</div>';
   if (r.isNewRow) {
     var eds = S._en.positionIds.filter(enEditable);
     who = (showDate ? '<div class="small-muted">' + thDate(r.date) + '</div>' : '') +
@@ -722,8 +755,8 @@ function rowHtml(r, unitCol, showDate){
   var dt = defaultTimes(r.slot, r.pid);
   return '<tr id="tr_' + k + '" class="' + cls + '"><td>' + (ed ? '<input class="form-check-input en-sel" type="checkbox" data-k="' + k + '"' + (r.sel ? ' checked' : '') + ' aria-label="เลือก">' : '') + '</td>' +
     '<td>' + (ed ? '<input class="form-control form-control-sm text-center" data-k="' + k + '" data-f="sheetNo" value="' + esc(r.sheetNo) + '" style="width:48px">' : esc(r.sheetNo)) + '</td>' +
-    '<td>' + who + (r.err ? '<span class="err-msg"><i class="bi bi-exclamation-circle"></i> ' + esc(r.err) + '</span>' : '') + '</td>' +
-    (unitCol ? '<td>' + (hasUnit(r.pid) ? (ed ? '<input class="form-control form-control-sm" list="enUnits" data-k="' + k + '" data-f="unit" value="' + esc(r.unit || '') + '" style="width:110px" placeholder="เช่น X-Ray">' : esc(r.unit || '')) : '') + '</td>' : '') +
+    '<td id="who_' + k + '">' + who + (r.err ? '<span class="err-msg"><i class="bi bi-exclamation-circle"></i> ' + esc(r.err) + '</span>' : '') + '</td>' +
+    (unitCol ? '<td>' + (hasUnit(r.pid) ? (ed ? '<input class="form-control form-control-sm" list="enUnits" data-k="' + k + '" data-f="unit" value="' + esc(r.unit || '') + '" style="width:110px" placeholder="เช่น CT, MRI">' : esc(r.unit || '')) : '') + '</td>' : '') +
     '<td>' + (ed ? '<input class="form-control form-control-sm t-in" data-k="' + k + '" data-f="tin" value="' + esc(r.tin) + '" placeholder="' + dt.tin + '" inputmode="numeric">' : esc(r.tin)) + '</td>' +
     '<td>' + (ed ? '<input class="form-control form-control-sm t-in" data-k="' + k + '" data-f="tout" value="' + esc(r.tout) + '" placeholder="' + dt.tout + '" inputmode="numeric">' : esc(r.tout)) + '</td>' +
     '<td>' + scanCell(r) + '</td><td class="preview" id="pv_' + k + '">' + previewHtml(r) + '</td>' +
@@ -732,6 +765,7 @@ function rowHtml(r, unitCol, showDate){
 }
 /** อัปเดตเฉพาะแถวที่เปลี่ยน (หน้าจอไม่กระโดด) */
 function refreshRows(keys){
+  S._dups = sheetDups();
   var unitCol = S._en.positionIds.some(hasUnit), flat = ['date', 'pos'].indexOf($('enSort').value) < 0;
   keys.forEach(function(k){
     var tr = $('tr_' + k), r = S.enRows[k]; if (!tr || !r) return;
@@ -744,6 +778,21 @@ function refreshRows(keys){
   $$('#enSeg button').forEach(function(b){ var n = b.dataset.f === 'all' ? S.enOrder.length : cnt[b.dataset.f]; b.innerHTML = b.textContent.replace(/\s*\d+$/, '') + '<span class="n">' + n + '</span>'; });
   enBar();
 }
+/** เลขใบ/บุคลากรเปลี่ยน → อัปเดตธง "เลขใบซ้ำ" ของทุกแถวที่เกี่ยวข้องทันที (ไม่ต้องรอบันทึก) */
+function dupRefresh(){
+  var before = S._dups || {}; S._dups = sheetDups();
+  Object.keys(before).concat(Object.keys(S._dups)).forEach(function(k){ var r = S.enRows[k]; var pv = $('pv_' + k); if (r && pv) pv.innerHTML = previewHtml(r); });
+}
+/** 1 ต.ค. 69 เปลี่ยนชื่อผู้ปฏิบัติงานในแถวที่บันทึกแล้ว ได้ในหน้าเลย (บันทึกพร้อมแถวอื่นด้วยปุ่ม "บันทึก") */
+function pickEmp(k){
+  var r = S.enRows[k]; if (!r) return;
+  var td = $('who_' + k); if (!td) return;
+  td.innerHTML = '<select class="form-select form-select-sm" data-search data-k="' + k + '" data-f="emp">' + '<option value="' + esc(r.empCode) + '" selected>' + esc(r.name) + '</option>' +
+    empOptions(S._en.employees, r.pid, { except: r.empCode }) + '</select><div class="small-muted">เลือกชื่อที่ถูกต้องตามใบลงชื่อ แล้วกด "บันทึก"</div>';
+  bindEntry(td);
+  var c = td.querySelector('.combo-in, input'); if (c) setTimeout(function(){ c.focus(); if (c.click) c.click(); }, 30);
+}
+function whoEditBtn(r, ed){ return ed && r.rec ? ' <button type="button" class="btn-who" title="เปลี่ยนชื่อผู้ปฏิบัติงาน (แก้ให้ตรงกับใบลงชื่อ)" onclick="pickEmp(\'' + r.key + '\')"><i class="bi bi-pencil"></i></button>' : ''; }
 function markRow(k){ var tr = $('tr_' + k), r = S.enRows[k]; if (!tr) return; tr.classList.toggle('row-dirty', !!r.dirty); tr.classList.toggle('row-sel', !!r.sel); tr.classList.toggle('row-err', !!r.err); var c = tr.querySelector('.en-sel'); if (c) c.checked = !!r.sel; }
 function bindEntry(root){
   enhanceSelects(root);
@@ -764,10 +813,13 @@ function bindEntry(root){
       }
       else if (f === 'emp') { var e = S._en.employees.filter(function(x){ return x.empCode === inp.value; })[0]; r.empCode = inp.value; r.name = e ? e.name : ''; }
       else if (f === 'pid') { r.pid = inp.value; r.dirty = true; r.sel = true; refreshRows([k]); return; }
+      else if (f === 'unit') { r.unit = final ? normUnit(inp.value) : inp.value; if (final) inp.value = r.unit; }
+      else if (f === 'sheetNo') { r.sheetNo = inp.value.replace(/\D/g, '').slice(0, 3); if (final) inp.value = r.sheetNo; }
       else if (f === 'tin' || f === 'tout') { if (final) { var n = normT(inp.value); if (inp.value && !n) inp.classList.add('bad'); else { inp.classList.remove('bad'); inp.value = n; } r[f] = n || inp.value; } else r[f] = normT(inp.value) || inp.value; }
       else r[f] = inp.value;
       r.dirty = true; r.err = ''; r.sel = true;
       markRow(k);
+      if (final && (f === 'sheetNo' || f === 'emp')) dupRefresh();
       var pv = $('pv_' + k); if (pv) pv.innerHTML = previewHtml(r);
       enBar();
     };
@@ -860,7 +912,10 @@ function saveSelected(btn){
         changed.push(nk);
       } else { r.err = x.error; r.sel = true; changed.push(x.key); }
     });
-    if (replaced) renderEntry(); else refreshRows(changed);
+    // 1 ต.ค. 69 รายการข้างเคียง (วัน/ตำแหน่งเดียวกัน) ที่ธงเปลี่ยน เช่น เลขใบซ้ำหายไปหลังสลับใบ
+    (res.siblings || []).forEach(function(rec){ var sk = 'r_' + rec.id, sr = S.enRows[sk]; if (!sr || sr.dirty || sr.saving) return; S.enRows[sk] = recToRow(rec, sr); var dd = dayOf(rec.date); if (dd) { dd.records = dd.records.filter(function(y){ return y.id !== rec.id; }); dd.records.push(rec); } changed.push(sk); });
+    var moved = S.enView === 'sheet' && res.results.some(function(x){ return x.ok && x.rec && +x.rec.sheetNo !== S.enSheetNo; });
+    if (replaced || moved) renderEntry(); else refreshRows(changed);
     changed.forEach(function(k){ var tr = $('tr_' + k); if (tr && S.enRows[k] && S.enRows[k].rec && !S.enRows[k].err) tr.classList.add('row-saved'); });
     if (res.failed) alertBox('บันทึกแล้ว ' + res.saved + ' แถว · ไม่สำเร็จ ' + res.failed + ' แถว', 'แถวที่ไม่สำเร็จแสดงเหตุผลเป็นข้อความสีแดงใต้ชื่อ กรุณาแก้ไขแล้วกดบันทึกอีกครั้ง', 'warning');
     else notify('บันทึกเรียบร้อย ' + res.saved + ' แถว');
@@ -988,13 +1043,13 @@ function renderSheetView(first){
     '<button class="pv-nav" onclick="pvGo(1)"' + (idx >= pg.length - 1 ? ' disabled' : '') + ' title="ใบถัดไป (→)"><i class="bi bi-chevron-right"></i></button></div>';
   h += '<div class="paper-stage"><div class="paper ' + (S.pvDir ? 'flip-' + S.pvDir : '') + '">' + paperHead(pid, k0, nSheet) +
     '<div class="sheet-tabs">' + Array.apply(null, Array(nSheet)).map(function(_, i){ return '<button type="button" class="' + (i + 1 === k0 ? 'on' : '') + '" onclick="S.pvDir=\'' + (i + 1 > k0 ? 'next' : 'prev') + '\';S.enSheetNo=' + (i + 1) + ';renderEntry()">ใบที่ ' + (i + 1) + '</button>'; }).join('') + '</div>';
-  h += '<div class="tbl paper-tbl"><table class="table sheet-t"><thead><tr><th style="width:34px"></th><th style="width:96px">วัน / วันที่</th><th style="width:86px">รหัส</th><th>ชื่อ-นามสกุล</th><th>เวลาเข้างาน</th><th>เวลาออกงาน</th><th>เวลาสแกนของวัน</th><th>ผลคำนวณ / ตรวจสแกน</th><th title="ไม่เบิกค่า OT">ไม่เบิก OT</th><th></th></tr></thead><tbody>';
+  h += '<div class="tbl paper-tbl"><table class="table sheet-t"><thead><tr><th style="width:34px"></th><th style="width:96px">วัน / วันที่</th><th style="width:58px" title="แก้เลขใบให้ตรงกับใบลงชื่อจริง แล้วกดบันทึก รายการจะย้ายไปใบนั้น">ใบที่</th><th style="width:86px">รหัส</th><th>ชื่อ-นามสกุล</th>' + (hasUnit(pid) ? '<th>จุดปฏิบัติงาน</th>' : '') + '<th>เวลาเข้างาน</th><th>เวลาออกงาน</th><th>เวลาสแกนของวัน</th><th>ผลคำนวณ / ตรวจสแกน</th><th title="ไม่เบิกค่า OT">ไม่เบิก OT</th><th></th></tr></thead><tbody>';
   var vis = visibleKeys(), f = S.enFilter || 'all';
   d.days.forEach(function(x){
     var keys = vis.filter(function(k){ var r = S.enRows[k]; return r.pid === pid && r.date === x.date && +r.sheetNo === k0; });
     if (keys.length) keys.forEach(function(k){ h += sheetRowHtml(S.enRows[k], x, k0); });
     else if (f === 'all' && !($('enQ') && $('enQ').value)) {
-      h += '<tr class="sheet-empty ' + dk(x.color) + '"><td></td><td class="text-nowrap"><b>' + TH_D[x.dow] + '</b> ' + thDate(x.date) + '</td><td colspan="8">' + (x.dayType === S.boot.dayTypes.CLOSED ? '<span class="small-muted">— ปิดคลินิก —</span>' : (ed ? '<button class="btn btn-sm btn-link py-0 text-decoration-none" onclick="addRow(\'' + x.date + '\',{pid:\'' + pid + '\',sheetNo:' + k0 + '})"><i class="bi bi-plus-circle"></i> เพิ่มผู้ปฏิบัติงานในใบที่ ' + k0 + '</button>' : '')) + (x.note ? ' <span class="small-muted">' + esc(x.note) + '</span>' : '') + '</td></tr>';
+      h += '<tr class="sheet-empty ' + dk(x.color) + '"><td></td><td class="text-nowrap"><b>' + TH_D[x.dow] + '</b> ' + thDate(x.date) + '</td><td colspan="' + (hasUnit(pid) ? 10 : 9) + '">' + (x.dayType === S.boot.dayTypes.CLOSED ? '<span class="small-muted">— ปิดคลินิก —</span>' : (ed ? '<button class="btn btn-sm btn-link py-0 text-decoration-none" onclick="addRow(\'' + x.date + '\',{pid:\'' + pid + '\',sheetNo:' + k0 + '})"><i class="bi bi-plus-circle"></i> เพิ่มผู้ปฏิบัติงานในใบที่ ' + k0 + '</button>' : '')) + (x.note ? ' <span class="small-muted">' + esc(x.note) + '</span>' : '') + '</td></tr>';
     }
   });
   h += '</tbody></table></div><div class="paper-sign"><div><span>ผู้ตรวจสอบการลงเวลาปฏิบัติงาน</span><i></i></div><div><span>ข้าพเจ้าขอรับรองว่าผู้มีรายนามข้างต้นได้มาปฏิบัติงานจริง</span><i></i></div></div>' +
@@ -1005,26 +1060,33 @@ function renderSheetView(first){
   enBar();
   if (!first) window.scrollTo({ top: y, behavior: 'instant' });
 }
-/** พิมพ์ใบที่แสดง / ทุกใบของตำแหน่ง (A4 แนวตั้ง จากข้อมูลในระบบ ใช้ตรวจทานกับใบจริง) */
+/** พิมพ์ใบที่แสดง / ทุกใบของตำแหน่ง (A4 แนวตั้ง จากข้อมูลในระบบ ใช้ตรวจทานกับใบจริง)
+ *  1 ต.ค. 69: 1 ใบ = 1 หน้าพอดี (ย่ออัตโนมัติ) · หัวกระดาษเดียวกันทุกหน้า · ช่อง ✓ สำหรับติ๊กด้วยปากกา · แถวเลขใบซ้ำมีสีแดง */
 function printPaper(all){
   var d = S._en, pid = S.enSheetPid, n = sheetCount(pid), list = all ? Array.apply(null, Array(n)).map(function(_, i){ return i + 1; }) : [S.enSheetNo], cnt = 0;
-  var body = list.map(function(k, i){
-    var rows = '';
+  var P = enPos(pid), ym = d.ym.split('-'), month = TH_MF[+ym[1] - 1] + ' ปี พ.ศ. ' + (+ym[0] + 543), unit = hasUnit(pid);
+  var colors = (S.boot && S.boot.dayColors) || {}, dups = S._dups || {};
+  var bgOf = function(x){ var c = colors[x.color]; return x.color && x.color !== 'WORK' && c ? c.print : ''; };
+  var pages = list.map(function(k){
+    var rows = [];
     d.days.forEach(function(x){
       var keys = S.enOrder.filter(function(kk){ var r = S.enRows[kk]; return r.pid === pid && r.date === x.date && +r.sheetNo === k; });
-      if (!keys.length) { rows += '<tr class="' + dk(x.color) + '"><td>' + TH_D[x.dow] + '</td><td>' + thDate(x.date) + '</td><td></td><td>' + (x.dayType === S.boot.dayTypes.CLOSED ? '— ปิดคลินิก —' : '') + '</td><td></td><td></td><td></td><td></td></tr>'; return; }
-      keys.forEach(function(kk){ var r = S.enRows[kk]; cnt++; var rec = r.rec || {};
-        rows += '<tr class="' + dk(x.color) + '"><td>' + TH_D[x.dow] + '</td><td>' + thDate(x.date) + '</td><td>' + esc(r.empCode) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.tin || '') + '</td><td>' + esc(r.tout || '') + '</td><td>' + (rec.otHours ? fmt(rec.otHours, 1) : '') + '</td><td>' + esc(rec.scanStatus || (r.rec ? '' : 'ยังไม่บันทึก')) + '</td></tr>'; });
+      var base = { dow: TH_D[x.dow], date: thDate(x.date), bg: bgOf(x) };
+      if (!keys.length) { rows.push(Object.assign({ closed: x.dayType === S.boot.dayTypes.CLOSED }, base)); return; }
+      keys.forEach(function(kk){ var r = S.enRows[kk], rec = r.rec || {}; cnt++;
+        rows.push(Object.assign({ code: r.empCode, name: r.name, unit: r.unit || '', tin: r.tin || '', tout: r.tout || '', ot: rec.otHours ? fmt(rec.otHours, 1) : '', scan: rec.scanStatus || (r.rec ? '' : 'ยังไม่บันทึก'), dup: !!dups[kk] }, base)); });
     });
-    return '<div class="pr-paper' + (i ? ' pb' : '') + '">' + paperHead(pid, k, n) + '<table class="pr-table"><thead><tr><th style="width:34px">วัน</th><th style="width:72px">วันที่</th><th style="width:70px">รหัส</th><th>ชื่อ-นามสกุล</th><th style="width:60px">เข้า</th><th style="width:60px">ออก</th><th style="width:40px">OT</th><th style="width:110px">ตรวจสแกน</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
-  }).join('');
-  printReport({ title: 'สำเนาตรวจทานใบลงชื่อ (ข้อมูลในระบบ) · ' + enPos(pid).name, subtitle: d.thMonth + ' · ' + (all ? 'ทุกใบ (' + n + ' ใบ)' : 'ใบที่ ' + S.enSheetNo), filters: '', bodyHtml: body, count: cnt, portrait: true, kind: 'paper' }).catch(function(){});
+    return { form: 'FM-HRM-031', clinic: P.clinicName || 'คลินิกพิเศษเฉพาะทางนอกเวลา', month: month, posName: P.name, k: k, n: n, unit: unit, rows: rows };
+  });
+  api('logPrint', { title: 'สำเนาตรวจทานใบลงชื่อ (ข้อมูลในระบบ) · ' + P.name, filters: d.thMonth + ' · ' + (all ? 'ทุกใบ (' + n + ' ใบ)' : 'ใบที่ ' + S.enSheetNo), count: cnt, kind: 'paper' }, { block: 'กำลังเตรียมเอกสารสำหรับพิมพ์…' }).then(function(m){
+    return printDoc({ orient: 'portrait', title: 'สำเนาตรวจทาน_' + P.name + '_' + d.thMonth.replace(' ', '_') + (all ? '_ทุกใบ' : '_ใบที่' + S.enSheetNo), pages: pages.map(function(pg){ return docReviewSheetHtml(pg, m); }) });
+  }).catch(function(){});
 }
 function sheetRowHtml(r, x, k0){
   x = x || dayOf(r.date) || {};
   var ed = enEditable(r.pid) || (r.isNewRow && S._en.editable);
   var k = r.key, cls = (r.inactive ? 'inactive ' : '') + (r.dirty ? 'row-dirty ' : '') + (r.err ? 'row-err ' : '') + (r.sel ? 'row-sel ' : '') + (r.saving ? 'row-saving ' : '') + dk(x.color);
-  var who = '<div class="who"><b>' + esc(r.name) + '</b><small>' + (r.slot ? 'ตาราง <span class="tag">' + esc(lbl(r.slot)) + '</span>' : '<span class="text-warning">นอกตาราง</span>') + (r.note ? ' · ' + esc(r.note) : '') + '</small></div>';
+  var who = '<div class="who"><b>' + esc(r.name) + whoEditBtn(r, ed) + '</b><small>' + (r.slot ? 'ตาราง <span class="tag">' + esc(lbl(r.slot)) + '</span>' : '<span class="text-warning">นอกตาราง</span>') + (r.note ? ' · ' + esc(r.note) : '') + '</small></div>';
   if (r.isNewRow) who = '<select class="form-select form-select-sm" data-search data-k="' + k + '" data-f="emp"><option value="">— เลือกบุคลากร —</option>' +
     empOptions(S._en.employees, r.pid, { cur: r.empCode }) + '</select>';
   var menu = '';
@@ -1033,8 +1095,11 @@ function sheetRowHtml(r, x, k0){
   else if (ed && !r.dirty) menu = '<button class="btn btn-icon btn-sm btn-ghost" title="นำออกจากตารางเวร" onclick="unschedRow(\'' + k + '\')"><i class="bi bi-person-x"></i></button>';
   var dt = defaultTimes(r.slot, r.pid);
   return '<tr id="tr_' + k + '" class="' + cls + '"><td>' + (ed ? '<input class="form-check-input en-sel" type="checkbox" data-k="' + k + '"' + (r.sel ? ' checked' : '') + ' aria-label="เลือก">' : '') + '</td>' +
-    '<td class="text-nowrap"><b>' + TH_D[dowOf(r.date)] + '</b> ' + thDate(r.date) + '</td><td class="tnum">' + esc(r.empCode) + '</td>' +
-    '<td>' + who + (r.err ? '<span class="err-msg"><i class="bi bi-exclamation-circle"></i> ' + esc(r.err) + '</span>' : '') + '</td>' +
+    '<td class="text-nowrap"><b>' + TH_D[dowOf(r.date)] + '</b> ' + thDate(r.date) + '</td>' +
+    '<td>' + (ed ? '<input class="form-control form-control-sm text-center" data-k="' + k + '" data-f="sheetNo" value="' + esc(r.sheetNo) + '" style="width:48px" inputmode="numeric" aria-label="เลขใบ">' : esc(r.sheetNo)) + '</td>' +
+    '<td class="tnum">' + esc(r.empCode) + '</td>' +
+    '<td id="who_' + k + '">' + who + (r.err ? '<span class="err-msg"><i class="bi bi-exclamation-circle"></i> ' + esc(r.err) + '</span>' : '') + '</td>' +
+    (hasUnit(r.pid) ? '<td>' + (ed ? '<input class="form-control form-control-sm" list="enUnits" data-k="' + k + '" data-f="unit" value="' + esc(r.unit || '') + '" style="width:110px" placeholder="เช่น CT, MRI">' : esc(r.unit || '')) + '</td>' : '') +
     '<td>' + (ed ? '<input class="form-control form-control-sm t-in" data-k="' + k + '" data-f="tin" value="' + esc(r.tin) + '" placeholder="' + dt.tin + '" inputmode="numeric">' : esc(r.tin)) + '</td>' +
     '<td>' + (ed ? '<input class="form-control form-control-sm t-in" data-k="' + k + '" data-f="tout" value="' + esc(r.tout) + '" placeholder="' + dt.tout + '" inputmode="numeric">' : esc(r.tout)) + '</td>' +
     '<td>' + scanCell(r) + '</td><td class="preview" id="pv_' + k + '">' + previewHtml(r) + '</td>' +
@@ -1145,7 +1210,7 @@ function drawSubmit(){
   list.forEach(function(p){
     var can = todoSt.indexOf(p.status) >= 0 && p.records;
     h += '<tr><td>' + (can ? '<input class="form-check-input sb-sel" type="checkbox" data-id="' + p.positionId + '"' + (!p.blocking ? '' : '') + ' aria-label="เลือก ' + esc(p.name) + '">' : '') + '</td><td><div class="who"><b>' + esc(p.name) + '</b><small>' + esc(p.groupName) + ' · ' + p.people + ' คน</small></div></td>' +
-      '<td>' + statusPill(p.status) + (p.reason ? '<span class="flag bad">' + esc(p.reason) + '</span>' : '') + (p.submittedAt && p.status !== 'OPEN' ? '<div class="small-muted">ส่งเมื่อ ' + esc(p.submittedAt) + '</div>' : '') + '</td>' +
+      '<td>' + statusPill(p.status) + (p.reason ? '<span class="flag bad">' + esc(p.reason) + '</span>' : '') + (p.submittedAt && p.status !== 'OPEN' ? '<div class="small-muted">ส่งเมื่อ ' + esc(p.submittedAt) + '</div>' : '') + hrmiNote(p) + '</td>' +
       '<td class="num">' + p.records + '</td><td class="num">' + (p.blocking ? '<span class="pill p-bad nodot">' + p.blocking + '</span>' : '<span class="text-success fw-semibold">0</span>') + '</td><td class="num">' + (p.flagged ? '<span class="pill p-warn nodot">' + p.flagged + '</span>' : '0') + '</td>' +
       '<td class="num">' + (p.missing ? '<span class="pill p-warn nodot">' + p.missing + '</span>' : '0') + '</td><td class="num">' + p.pendingScan + '</td><td class="num">' + fmt(p.amount, 2) + '</td>' +
       '<td class="text-nowrap text-end"><button class="btn btn-sm btn-ghost" onclick="S.enPid=\'' + p.positionId + '\';S.pid=\'' + p.positionId + '\';go(\'entry\')"><i class="bi bi-ui-checks-grid"></i> ' + (p.blocking ? 'ไปแก้ไข' : 'เปิดบันทึก') + '</button> ' +
@@ -1185,6 +1250,12 @@ PAGES.review = function(){
   loadApproval();
 };
 function loadApproval(){ var ym = S.ym; apiView('getApprovalBoard', { ym: ym }, function(d){ if (S.ym !== ym) return; S._ap = d; drawApproval(); }).catch(function(){}); }
+/** 1 ต.ค. 69 ไฟล์ HRMi: ดาวน์โหลดแล้วเมื่อไร · มีการแก้ไขหลังดาวน์โหลด → เตือนให้ดาวน์โหลดใหม่ */
+function hrmiNote(p){
+  if (!p || !p.exportedAt) return '';
+  if (p.hrmiChanged) return '<span class="flag bad"><i class="bi bi-exclamation-triangle"></i> แก้ไขข้อมูลหลังดาวน์โหลดไฟล์ HRMi (' + esc(p.exportedAt.slice(5, 16)) + ') · ดาวน์โหลดใหม่</span>';
+  return '<div class="small-muted"><i class="bi bi-database-check"></i> ดาวน์โหลด HRMi แล้ว ' + esc(p.exportedAt.slice(5, 16)) + '</div>';
+}
 function drawApproval(){
   var d = S._ap; if (!d || !$('rvBody')) return;
   var cnt = {}; d.positions.forEach(function(p){ cnt[p.status] = (cnt[p.status] || 0) + 1; });
@@ -1201,7 +1272,7 @@ function drawApproval(){
   list.forEach(function(p){
     var st = p.status === 'SUBMITTED' ? 'ส่งเมื่อ ' + p.submittedAt : p.status === 'REVIEWED' ? 'ตรวจแล้ว ' + p.reviewedAt : p.status === 'APPROVED' ? 'อนุมัติ ' + p.approvedAt : '';
     h += '<tr><td><input class="form-check-input ap-sel" type="checkbox" data-id="' + p.positionId + '" aria-label="เลือก ' + esc(p.name) + '"></td><td><div class="who"><b>' + esc(p.name) + '</b><small>' + esc(p.groupName) + '</small></div></td>' +
-      '<td>' + statusPill(p.status) + (st ? '<div class="small-muted">' + esc(st) + '</div>' : '') + (p.reason ? '<span class="flag bad">' + esc(p.reason) + '</span>' : '') + '</td>' +
+      '<td>' + statusPill(p.status) + (st ? '<div class="small-muted">' + esc(st) + '</div>' : '') + (p.reason ? '<span class="flag bad">' + esc(p.reason) + '</span>' : '') + hrmiNote(p) + '</td>' +
       '<td class="num">' + p.people + '</td><td class="num">' + p.records + '</td><td class="num">' + (p.blocking ? '<a href="#" class="pill p-bad nodot" onclick="rvDetail([\'' + p.positionId + '\'],\'fix\');return false">' + p.blocking + '</a>' : '<span class="text-success fw-semibold">0</span>') + '</td>' +
       '<td class="num">' + (p.flagged ? '<a href="#" class="pill p-warn nodot" onclick="rvDetail([\'' + p.positionId + '\'],\'flag\');return false">' + p.flagged + '</a>' : '0') + '</td><td class="num">' + (p.missing ? '<a href="#" class="pill p-warn nodot" onclick="rvDetail([\'' + p.positionId + '\'],\'miss\');return false">' + p.missing + '</a>' : '0') + '</td>' +
       '<td class="num">' + fmt(p.shifts) + ' / ' + fmt(p.ot, 1) + '</td><td class="num fw-semibold">' + fmt(p.amount, 2) + '</td>' +
@@ -1417,53 +1488,80 @@ PAGES.export = function(){
   var ids = posIdsFor(['ENTRY', 'REVIEWER', 'COORD', 'MANAGER']);
   var xl = S.boot.canExcel;
   var h = pageHead('งานประจำเดือน', 'จัดพิมพ์และส่งออกเอกสาร', 'กด "พิมพ์" แล้วหน้าต่างพิมพ์จะขึ้นทันที (ต้องการไฟล์ ให้เลือกเครื่องพิมพ์เป็น "บันทึกเป็น PDF") · ไฟล์ HRMi ดาวน์โหลดลงเครื่อง · ระบบไม่เก็บสำเนาไว้ใน Drive') +
-    '<div class="filters">' + ymSelect('exYm', S.ym, 14, 2, 'รอบเดือน') + '</div><div id="exDemo"></div><div class="row g-3">';
+    '<div class="filters">' + ymSelect('exYm', S.ym, 14, 2, 'รอบเดือน') +
+    '<div class="flex-grow-1" style="min-width:260px;max-width:560px"><label class="form-label">ตำแหน่งที่จะพิมพ์ / ส่งออก (ใช้กับทุกเอกสารในหน้านี้)</label><button type="button" class="form-select pp-btn" id="exPick" onclick="exPick()"></button></div></div><div id="exDemo"></div><div class="row g-3">';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-brand"><i class="bi bi-table"></i></div><div><h3>ตารางเวรและตาราง OT</h3><div class="sub">รูปแบบเดียวกับเอกสารแนบเบิก มีช่องลงนามผู้ตรวจสอบและผู้รับรอง</div></div></div><div class="card-b">' +
-    posSelect('exPos', ids, 'all', true) +
-    '<div class="mt-2"><label class="form-label">ประเภทเอกสาร</label><div class="seg w-100" id="exDoc"><button type="button" data-v="duty">ตารางเวร</button><button type="button" data-v="ot">ตาราง OT</button><button type="button" data-v="both" class="on">ทั้งสองแบบ</button></div></div>' +
+    '<div><label class="form-label">ประเภทเอกสาร</label><div class="seg w-100" id="exDoc"><button type="button" data-v="duty">ตารางเวร</button><button type="button" data-v="ot">ตาราง OT</button><button type="button" data-v="both" class="on">ทั้งสองแบบ</button></div></div>' +
     '<div class="mt-2"><label class="form-label" for="exKind">ฉบับ</label><select class="form-select" id="exKind"><option value="pay">ฉบับเบิกจ่าย (แสดงจำนวนเงิน)</option><option value="check">ฉบับตรวจสอบ (ไม่แสดงจำนวนเงิน)</option></select></div>' +
     '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exTables(\'pdf\',this)"><i class="bi bi-printer"></i> พิมพ์ / บันทึก PDF</button>' +
     (xl ? '<button class="btn btn-ghost" onclick="exTables(\'xlsx\',this)"><i class="bi bi-file-earmark-excel"></i> ดาวน์โหลด Excel</button>' : '<span class="small-muted align-self-center"><i class="bi bi-lock"></i> ไฟล์ Excel สำหรับผู้ดูแลระบบเท่านั้น</span>') + '</div>' +
     '<div class="small-muted mt-2">ตำแหน่งที่ยังไม่อนุมัติ เอกสารจะมีข้อความ "ฉบับร่าง – ยังไม่ได้รับอนุมัติ" · มีเลขหน้าและข้อมูลผู้จัดพิมพ์ทุกหน้า</div></div></div></div>';
   h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-info"><i class="bi bi-pen"></i></div><div><h3>ใบลงชื่อปฏิบัติงาน FM-HRM-031</h3><div class="sub">พิมพ์ได้ทุกตำแหน่งพร้อมกัน จำนวนใบตามกรอบเวรที่คลินิกกำหนด</div></div></div><div class="card-b">' +
-    posSelect('exSignPos', ids, 'all', true, 'ทุกตำแหน่งที่ท่านดูแล') +
-    '<div class="mt-2"><label class="form-label">รายชื่อในใบ</label><div class="seg w-100" id="exSignMode"><button type="button" data-v="names" class="on">ใส่รายชื่อตามตารางเวร</button><button type="button" data-v="blank">ไม่ใส่รายชื่อ (ใบเปล่า)</button></div></div>' +
+    '<div><label class="form-label">รายชื่อในใบ</label><div class="seg w-100" id="exSignMode"><button type="button" data-v="names" class="on">ใส่รายชื่อตามตารางเวร</button><button type="button" data-v="blank">ไม่ใส่รายชื่อ (ใบเปล่า)</button></div></div>' +
     '<div class="mt-2" id="exSheetsBox" hidden><label class="form-label" for="exSheets">จำนวนใบ (ไม่ระบุ = ตามกรอบเวร)</label><input class="form-control" id="exSheets" type="number" min="1" max="40" style="max-width:140px"></div>' +
     '<div class="mt-3 d-flex gap-2 flex-wrap"><button class="btn btn-brand" onclick="exSign(\'pdf\',this)"><i class="bi bi-printer"></i> พิมพ์ / บันทึก PDF</button>' +
     (xl ? '<button class="btn btn-ghost" onclick="exSign(\'xlsx\',this)"><i class="bi bi-file-earmark-excel"></i> ดาวน์โหลด Excel</button>' : '') + '</div>' +
     '<div class="small-muted mt-2">ตัวอย่าง: กรอบพยาบาลเดือนนี้สูงสุด 7 คน → ได้ใบที่ 1–7 · วันที่กรอบน้อยกว่า (เช่น 5 คน) ใบที่ 6–7 ของวันนั้นเป็นช่องสีเทาทึบ ห้ามลงชื่อ · วันปิดคลินิกทึบทั้งแถว</div></div></div></div>';
-  h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-warn"><i class="bi bi-paperclip"></i></div><div><h3>ใบลืมสแกนรวมเล่ม</h3><div class="sub">รวมไฟล์แนบทั้งเดือนเป็น PDF ไฟล์เดียว พร้อมหัวกระดาษระบุรายการ</div></div></div><div class="card-b">' + posSelect('exAttPos', ids, 'all', true) +
-    '<div class="mt-3"><button class="btn btn-brand" onclick="printAttachments($(\'exYm\').value,$(\'exAttPos\').value)"><i class="bi bi-printer"></i> รวมเป็นเล่ม PDF เพื่อพิมพ์</button></div><div class="small-muted mt-2">เรียงตามตำแหน่งและวันที่ · ไฟล์รูปและ PDF รวมอยู่ในเล่มเดียว</div></div></div></div>';
+  h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-warn"><i class="bi bi-paperclip"></i></div><div><h3>ใบลืมสแกนรวมเล่ม</h3><div class="sub">รวมไฟล์แนบทั้งเดือนเป็น PDF ไฟล์เดียว พร้อมหัวกระดาษระบุรายการ</div></div></div><div class="card-b">' +
+    '<div><button class="btn btn-brand" onclick="exAtt()"><i class="bi bi-printer"></i> รวมเป็นเล่ม PDF เพื่อพิมพ์</button></div><div class="small-muted mt-2">เรียงตามตำแหน่งและวันที่ · ไฟล์รูปและ PDF รวมอยู่ในเล่มเดียว</div></div></div></div>';
   // 28 ก.ย. 69: ผู้บันทึกข้อมูลส่งออก HRMi ได้ (เฉพาะตำแหน่งที่ตนดูแล) · ประสานงาน/แอดมิน ทุกตำแหน่ง
   if (has('COORD') || has('ENTRY')) {
     var hrIds = has('COORD') ? S.boot.positions.filter(function(p){ return p.paid !== false; }).map(function(p){ return p.id; }) : posIdsFor(['ENTRY']).filter(function(id){ var p = posOf(id); return p && p.paid !== false; });
-    h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-ok"><i class="bi bi-database-up"></i></div><div><h3>ไฟล์นำเข้า HRMi</h3><div class="sub">ส่งออกได้เฉพาะตำแหน่งที่อนุมัติแล้ว · นำเข้า HRMi ภายในวันที่ 4 ของเดือนถัดไป</div></div></div><div class="card-b">' +
-      posSelect('hrPos', hrIds, 'all', true, has('COORD') ? 'ทุกตำแหน่ง' : 'ทุกตำแหน่งที่ท่านดูแล') +
-      '<div class="mt-2"></div>' +
+    h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-ok"><i class="bi bi-database-up"></i></div><div><h3>ไฟล์นำเข้า HRMi</h3><div class="sub">ดาวน์โหลดได้ตั้งแต่ตำแหน่งนั้น "ส่งตรวจแล้ว" ไม่ต้องรออนุมัติ · นำเข้า HRMi ภายในวันที่ 4 ของเดือนถัดไป</div></div></div><div class="card-b">' +
       '<div class="row g-2"><div class="col-sm-6"><label class="form-label" for="hrType">ประเภท</label><select class="form-select" id="hrType"><option value="all">ค่าเวรและค่า OT</option><option value="duty">ค่าเวร</option><option value="ot">ค่า OT</option></select></div>' +
       '<div class="col-sm-6"><label class="form-label" for="hrMode">รูปแบบไฟล์</label><select class="form-select" id="hrMode"><option value="combined">ไฟล์เดียว (1 ชีทต่อรหัสรายได้)</option><option value="split">แยกไฟล์ตามรหัสรายได้</option><option value="zip">ZIP (แยกไฟล์รวมในไฟล์เดียว)</option></select></div></div>' +
       '<div class="mt-3"><button class="btn btn-brand" onclick="exHRMi(this)"><i class="bi bi-download"></i> ดาวน์โหลดไฟล์ HRMi</button></div><div id="hrRes" class="small-muted mt-2"></div></div></div></div>';
   }
+  h += '<div class="col-xl-6"><div class="card h-100"><div class="card-h"><div class="ic-box ic-info"><i class="bi bi-calendar3"></i></div><div><h3>ตารางเวรสำหรับแจกหน่วยงาน</h3><div class="sub">A4 แนวนอน แบบ Google Sheet · ใครขึ้นเวรวันไหน กรอบต่อวัน รวมต่อคน (ไม่แสดงเงิน)</div></div></div><div class="card-b">' +
+    '<button class="btn btn-brand" onclick="exRoster(this)"><i class="bi bi-printer"></i> พิมพ์ / บันทึก PDF</button><div class="small-muted mt-2">ตำแหน่งละ 1 หน้า · เวรที่ยังรออนุมัติมีเครื่องหมาย * และหัวกระดาษระบุ "ฉบับร่าง" · บุคลากรทุกคนพิมพ์ได้จากหน้า "ตารางเวรรวม"</div></div></div></div>';
   h += '<div class="col-12"><div class="card"><div class="card-h"><div class="ic-box ic-violet"><i class="bi bi-person-check"></i></div><div><h3>ผู้ลงนามในเอกสาร</h3><div class="sub">ผู้ตรวจสอบตั้งแยกตามตำแหน่งได้ · ผู้รับรองคือผู้จัดการคลินิกคนเดียวทุกเอกสาร</div></div><button class="btn btn-sm btn-ghost ms-auto" id="psToggle" onclick="psToggle()"><i class="bi bi-sliders"></i> ตั้งผู้ตรวจสอบรายตำแหน่ง</button></div><div class="card-b" id="psBody"><div class="skel"></div></div></div></div>';
   mount(h + '</div>');
+  S._exIds = ids; S._hrIds = (has('COORD') || has('ENTRY')) ? hrIds : [];
+  exPickShow();
   loadPosSigners();
-  var syncSheets = function(){ $('exSheetsBox').hidden = ($('exSignPos').value || 'all') === 'all'; };
-  $('exSignPos').addEventListener('change', syncSheets); syncSheets();
   $$('#exSignMode button').forEach(function(b){ b.onclick = function(){ $$('#exSignMode button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); }; });
   // 28 ก.ย. 69: เลือกเดือนล่วงหน้าได้ (พิมพ์ใบลงชื่อไปให้ลงชื่อระหว่างเดือน) · ไม่เปลี่ยนเดือนของหน้าอื่นเป็นเดือนอนาคต
   $('exYm').onchange = function(){ if (this.value <= S.boot.ym) S.ym = this.value; $('exDemo').innerHTML = demoBanner(this.value) + (this.value > S.boot.ym ? '<div class="alert alert-info py-2 small mb-3"><i class="bi bi-calendar-plus"></i> เดือนล่วงหน้า: ใบลงชื่อใส่รายชื่อตามตารางเวรที่ลงไว้ขณะนี้ (รวมรายการที่ยังรอยืนยัน) · ตารางเวร/OT และไฟล์ HRMi ใช้ได้หลังปฏิบัติงานและอนุมัติแล้ว</div>' : ''); };
   $('exDemo').innerHTML = demoBanner($('exYm').value);
   $$('#exDoc button').forEach(function(b){ b.onclick = function(){ $$('#exDoc button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); }; });
 };
+/** 1 ต.ค. 69 ตำแหน่งที่เลือก (ใช้ร่วมทุกเอกสารในหน้า) · ว่าง = ทุกตำแหน่ง */
+function exPickShow(){
+  var sel = (S.exPids || []).filter(function(id){ return S._exIds.indexOf(id) >= 0; });
+  if ($('exPick')) $('exPick').innerHTML = '<i class="bi bi-ui-checks me-1"></i> ' + esc(posPickSummary(S._exIds, sel));
+  if ($('exSheetsBox')) $('exSheetsBox').hidden = sel.length !== 1;
+}
+function exPick(){ posPickModal('เลือกตำแหน่งที่จะพิมพ์ / ส่งออก', S._exIds, S.exPids, 'ใช้ตำแหน่งที่เลือก', function(list){ S.exPids = list; saveState(); exPickShow(); }); }
+/** ตำแหน่งที่เลือก ภายในรายการที่เอกสารนั้นรองรับ → ['all'] หรือ [ids] · null = ไม่มีตำแหน่งที่พิมพ์ได้ */
+function exSel(allowed){
+  var sel = (S.exPids || []).filter(function(id){ return S._exIds.indexOf(id) >= 0; });
+  if (!sel.length) return ['all'];
+  var ok = sel.filter(function(id){ return !allowed || allowed.indexOf(id) >= 0; });
+  if (!ok.length) { alertBox('ไม่มีตำแหน่งที่ใช้กับเอกสารนี้ได้', 'ตำแหน่งที่เลือกไม่มีสิทธิ์หรือไม่อยู่ในเอกสารประเภทนี้ กรุณาเลือกตำแหน่งใหม่', 'info'); return null; }
+  return ok;
+}
+function exAtt(){ var s = exSel(); if (s) printAttachments($('exYm').value, s); }
+function exRoster(btn){ var s = exSel(); if (!s) return; api('printRoster', { ym: $('exYm').value, positionIds: s }, { btn: btn, block: 'กำลังเตรียมตารางเวรสำหรับพิมพ์…' }).then(printRosterDoc).catch(function(){}); }
+/** หน้าตารางเวรรวม: ทุกคนพิมพ์ตารางเวรแนวนอนของตำแหน่งที่ตนเห็นได้ */
+function rosterDlg(){
+  var ids = viewIds(), cur = $('ovPos') && $('ovPos').value !== 'all' ? [$('ovPos').value] : (S.rosterPids || []);
+  posPickModal('พิมพ์ตารางเวร (แจกหน่วยงาน) · ' + thYm($('ovYm') ? $('ovYm').value : S.ym), ids, cur, '<i class="bi bi-printer"></i> พิมพ์', function(list){
+    S.rosterPids = list;
+    api('printRoster', { ym: $('ovYm') ? $('ovYm').value : S.ym, positionIds: list.length ? list : ['all'] }, { block: 'กำลังเตรียมตารางเวรสำหรับพิมพ์…' }).then(printRosterDoc).catch(function(){});
+  });
+}
+function rosterBtn(){ return ''; }
 function exTables(fmt2, btn){
   var on = $$('#exDoc .on')[0], doc = on ? on.dataset.v : 'both';
   // 29 ก.ย. 69: PDF = พิมพ์จากเบราว์เซอร์ทันที (ไม่สร้างไฟล์ที่เซิร์ฟเวอร์) · Excel (ผู้ดูแลระบบ) ยังสร้างที่เซิร์ฟเวอร์
-  if (fmt2 !== 'xlsx') return api('printTables', { ym: $('exYm').value, positionIds: [$('exPos').value], docType: doc, kind: $('exKind').value }, { btn: btn, block: 'กำลังเตรียมเอกสารสำหรับพิมพ์…' }).then(printTablesDoc).catch(function(){});
-  api('exportTables', { ym: $('exYm').value, positionIds: [$('exPos').value], docType: doc, kind: $('exKind').value, format: fmt2 }, { btn: btn, timeout: 360000, block: 'กำลังจัดทำเอกสาร อาจใช้เวลา 10–90 วินาที…' }).then(function(r){ download(r.files); }).catch(function(){});
+  var sel = exSel(); if (!sel) return;
+  if (fmt2 !== 'xlsx') return api('printTables', { ym: $('exYm').value, positionIds: sel, docType: doc, kind: $('exKind').value }, { btn: btn, block: 'กำลังเตรียมเอกสารสำหรับพิมพ์…' }).then(printTablesDoc).catch(function(){});
+  api('exportTables', { ym: $('exYm').value, positionIds: sel, docType: doc, kind: $('exKind').value, format: fmt2 }, { btn: btn, timeout: 360000, block: 'กำลังจัดทำเอกสาร อาจใช้เวลา 10–90 วินาที…' }).then(function(r){ download(r.files); }).catch(function(){});
 }
 function exSign(fmt2, btn){
-  var on = $$('#exSignMode .on')[0], blank = on && on.dataset.v === 'blank', pid = $('exSignPos').value || 'all';
-  if (fmt2 !== 'xlsx') return api('printSignSheets', { ym: $('exYm').value, positionId: pid, blank: blank, sheets: pid === 'all' ? '' : $('exSheets').value }, { btn: btn, block: 'กำลังเตรียมใบลงชื่อสำหรับพิมพ์…' }).then(function(r){
+  var on = $$('#exSignMode .on')[0], blank = on && on.dataset.v === 'blank', sel = exSel(); if (!sel) return;
+  var pid = sel.length === 1 ? sel[0] : 'all';
+  if (fmt2 !== 'xlsx') return api('printSignSheets', { ym: $('exYm').value, positionId: pid, positionIds: sel, blank: blank, sheets: pid === 'all' ? '' : $('exSheets').value }, { btn: btn, block: 'กำลังเตรียมใบลงชื่อสำหรับพิมพ์…' }).then(function(r){
     if (r.positions > 1 || r.skipped) notify('ใบลงชื่อ ' + r.sheets + ' ใบ' + (r.positions > 1 ? ' (' + r.positions + ' ตำแหน่ง)' : '') + (r.skipped ? ' · ข้าม ' + r.skipped + ' ตำแหน่งที่ไม่มีกรอบเวร' : ''), 'info');
     return printSignDoc(r);
   }).catch(function(){});
@@ -1529,9 +1627,9 @@ function savePosSigners(btn){
   api('savePosSigners', { items: changed }, { btn: btn }).then(function(d){ S._ps = d; drawPosSigners(); notify('บันทึกผู้ตรวจสอบ ' + changed.length + ' ตำแหน่งเรียบร้อย'); }).catch(function(){});
 }
 function exHRMi(btn){
-  var hp = $('hrPos') ? $('hrPos').value : 'all', mode = $('hrMode').value;
+  var sel = exSel(S._hrIds); if (!sel) return; var mode = $('hrMode').value;
   // 29 ก.ย. 69: เซิร์ฟเวอร์ส่งเฉพาะตัวเลข หน้าเว็บสร้างไฟล์ .xlsx ในเครื่อง (เร็วขึ้นมาก ไม่ต้องสร้าง Google Sheet ชั่วคราว)
-  api('hrmiData', { ym: $('exYm').value, type: $('hrType').value, mode: mode, positionIds: hp && hp !== 'all' ? [hp] : [] }, { btn: btn }).then(function(r){
+  api('hrmiData', { ym: $('exYm').value, type: $('hrType').value, mode: mode, positionIds: sel[0] === 'all' ? [] : sel }, { btn: btn }).then(function(r){
     var toSheet = function(x){ return { name: x.code, rows: [r.header].concat(x.rows.map(function(row){ return [/^\d+$/.test(String(row[0])) ? +row[0] : row[0]].concat(row.slice(1)); })) }; };
     var files;
     if (mode === 'combined') files = [{ name: r.tag + '.xlsx', blob: xlsxBlob(r.sheets.map(toSheet)) }];
@@ -1544,6 +1642,8 @@ function exHRMi(btn){
     downloadBlobs(files); return r;
   }).then(function(r){
     if (!r || !$('hrRes')) return;
-    $('hrRes').innerHTML = 'รหัสรายได้: ' + esc(r.codes.join(', ')) + (r.notApproved.length ? '<div class="text-danger">ยังไม่อนุมัติ (ไม่รวมในไฟล์): ' + esc(r.notApproved.join(', ')) + '</div>' : '');
+    $('hrRes').innerHTML = 'รหัสรายได้: ' + esc(r.codes.join(', ')) +
+      (r.pending && r.pending.length ? '<div class="text-warning"><i class="bi bi-hourglass-split"></i> รวมในไฟล์แต่ยังไม่อนุมัติ: ' + esc(r.pending.join(', ')) + ' · หากผู้อนุมัติส่งกลับแก้ไข ต้องดาวน์โหลดใหม่</div>' : '') +
+      (r.notApproved.length ? '<div class="text-danger">ยังไม่ส่งตรวจ (ไม่รวมในไฟล์): ' + esc(r.notApproved.join(', ')) + '</div>' : '');
   }).catch(function(){});
 }

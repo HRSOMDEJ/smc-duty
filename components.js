@@ -188,8 +188,10 @@ function b64ToBytes(b64){ var bin = atob(b64), a = new Uint8Array(bin.length); f
 function bytesToB64(bytes){ var s = '', ch = 0x8000; for (var i = 0; i < bytes.length; i += ch) s += String.fromCharCode.apply(null, bytes.subarray(i, i + ch)); return btoa(s); }
 
 function printAttachments(ym, pid){
-  var posLabel = pid === 'all' ? 'ทุกตำแหน่ง' : posName(pid);
-  api('listPrintAttachments', { ym: ym, positionId: pid }, { block: 'กำลังรวบรวมรายการเอกสาร…' }).then(function(r){
+  // 1 ต.ค. 69 pid = รหัสตำแหน่ง | 'all' | [รายการตำแหน่ง]
+  var arr = Array.isArray(pid) ? pid : [pid], one = arr.length === 1 ? arr[0] : '';
+  var posLabel = one === 'all' ? 'ทุกตำแหน่ง' : one ? posName(one) : arr.length + ' ตำแหน่ง';
+  api('listPrintAttachments', { ym: ym, positionId: one || 'all', positionIds: one ? [] : arr }, { block: 'กำลังรวบรวมรายการเอกสาร…' }).then(function(r){
     if (!r.files.length) return alertBox('ไม่พบใบลืมสแกน', 'เดือน ' + thYm(ym) + ' (' + posLabel + ') ยังไม่มีไฟล์แนบใบลืมสแกน', 'info');
     var n = r.files.length, done = 0;
     Swal.fire({ title: 'กำลังรวมเอกสาร', html: '<div id="pmTxt" class="small-muted">เตรียมเครื่องมือ…</div><div class="progress mt-2" style="height:8px"><div id="pmBar" class="progress-bar bg-danger" style="width:0%"></div></div>', allowOutsideClick: false, showConfirmButton: false });
@@ -383,6 +385,84 @@ function docSignSheetHtml(pg, foot){
   return h + '</tbody></table><div class="dss-note">ช่องสีเทาทึบ = วันปิดคลินิก หรือไม่มีกรอบเวรสำหรับใบนี้ (ห้ามลงชื่อ) · ลงเวลาเข้า-ออกงานตามจริง</div>' +
     docSignHtml(pg.left, pg.right) + '<div class="dss-foot"><i>' + esc(foot || '') + '</i></div><div class="dss-pg">' + esc(pg.page) + '</div></div>';
 }
+/* ================= 1 ต.ค. 69 เลือกหลายตำแหน่ง (ติ๊กเลือก แยกตามกลุ่ม) ================= */
+function posPickSummary(ids, sel){
+  if (!sel || !sel.length || sel.length >= ids.length) return 'ทุกตำแหน่ง (' + ids.length + ')';
+  var names = sel.map(posName);
+  return 'เลือก ' + sel.length + ' ตำแหน่ง: ' + names.slice(0, 3).join(', ') + (names.length > 3 ? ' และอีก ' + (names.length - 3) : '');
+}
+/** ids = ตำแหน่งที่เลือกได้ · sel = ที่เลือกไว้ (ว่าง = ทั้งหมด) · onOk(list) list ว่าง = ทั้งหมด */
+function posPickModal(title, ids, sel, okText, onOk){
+  var on = {}; (sel && sel.length ? sel : ids).forEach(function(id){ on[id] = 1; });
+  var groups = [], gmap = {};
+  S.boot.positions.forEach(function(p){ if (ids.indexOf(p.id) < 0) return; var g = p.groupName || 'อื่น ๆ'; if (!gmap[g]) { gmap[g] = []; groups.push(g); } gmap[g].push(p); });
+  var body = '<div class="d-flex gap-2 mb-2 flex-wrap"><input class="form-control form-control-sm flex-grow-1" id="ppQ" placeholder="ค้นหาตำแหน่ง / กลุ่ม" style="max-width:260px">' +
+    '<button type="button" class="btn btn-sm btn-ghost" id="ppAll"><i class="bi bi-check2-all"></i> เลือกทั้งหมด</button><button type="button" class="btn btn-sm btn-ghost" id="ppNone"><i class="bi bi-x-lg"></i> ล้าง</button></div>' +
+    '<div class="pp-list">' + groups.map(function(g, gi){
+      return '<div class="pp-g" data-g="' + gi + '"><label class="pp-gh"><input class="form-check-input" type="checkbox" data-pg="' + gi + '"> <b>' + esc(g) + '</b> <span class="small-muted">(' + gmap[g].length + ')</span></label><div class="pp-items">' +
+        gmap[g].map(function(p){ return '<label class="pp-i" data-q="' + esc((p.name + ' ' + g).toLowerCase()) + '"><input class="form-check-input" type="checkbox" data-pp="' + p.id + '" data-gi="' + gi + '"' + (on[p.id] ? ' checked' : '') + '> ' + esc(p.name) + '</label>'; }).join('') + '</div></div>';
+    }).join('') + '</div><div class="small-muted mt-2" id="ppCnt"></div>';
+  modal(title, body, [{ text: 'ยกเลิก', cls: 'btn-ghost' }, { text: okText || 'ตกลง', onClick: function(){
+    var list = $$('[data-pp]').filter(function(c){ return c.checked; }).map(function(c){ return c.dataset.pp; });
+    if (!list.length) { notify('กรุณาเลือกอย่างน้อย 1 ตำแหน่ง', 'info'); return false; }
+    onOk(list.length >= ids.length ? [] : list);
+  } }], 'lg');
+  var sync = function(){
+    groups.forEach(function(g, gi){ var cs = $$('[data-gi="' + gi + '"]'), n = cs.filter(function(c){ return c.checked; }).length, h = document.querySelector('[data-pg="' + gi + '"]'); h.checked = n === cs.length; h.indeterminate = n > 0 && n < cs.length; });
+    var n2 = $$('[data-pp]').filter(function(c){ return c.checked; }).length; $('ppCnt').textContent = 'เลือกแล้ว ' + n2 + ' จาก ' + ids.length + ' ตำแหน่ง';
+  };
+  setTimeout(function(){
+    $$('[data-pp]').forEach(function(c){ c.onchange = sync; });
+    $$('[data-pg]').forEach(function(h){ h.onchange = function(){ $$('[data-gi="' + h.dataset.pg + '"]').forEach(function(c){ if (c.closest('.pp-i').style.display !== 'none') c.checked = h.checked; }); sync(); }; });
+    $('ppAll').onclick = function(){ $$('[data-pp]').forEach(function(c){ if (c.closest('.pp-i').style.display !== 'none') c.checked = true; }); sync(); };
+    $('ppNone').onclick = function(){ $$('[data-pp]').forEach(function(c){ if (c.closest('.pp-i').style.display !== 'none') c.checked = false; }); sync(); };
+    $('ppQ').oninput = function(){ var q = this.value.trim().toLowerCase(); $$('.pp-i').forEach(function(l){ l.style.display = !q || l.dataset.q.indexOf(q) >= 0 ? '' : 'none'; }); $$('.pp-g').forEach(function(g){ g.style.display = $$('.pp-i', g).some(function(l){ return l.style.display !== 'none'; }) ? '' : 'none'; }); };
+    sync();
+  }, 30);
+}
+/** 1 ต.ค. 69 สำเนาตรวจทานใบลงชื่อ (ข้อมูลในระบบ) 1 ใบ = 1 หน้า A4 แนวตั้ง · หัวกระดาษเดียวกันทุกหน้า · ช่อง ✓ ไว้ติ๊กด้วยปากกา
+ *  pg: {form, clinic, month, posName, k, n, unit, rows:[{dow, date, code, name, unit, tin, tout, ot, scan, bg, closed, dup}]} · m: {ref, printedAt, printedBy} */
+function docReviewSheetHtml(pg, m){
+  var W = pg.unit ? [34, 64, 64, 190, 74, 52, 52, 34, 104, 28] : [36, 70, 68, 238, 56, 56, 36, 110, 30];
+  var tw = W.reduce(function(a, b){ return a + b; }, 0);
+  var h = '<div class="drv" style="width:' + tw + 'px"><div class="drv-top"><span>สำเนาตรวจทาน (ข้อมูลในระบบ) · ใช้เทียบกับใบลงชื่อจริง ไม่ใช้แทนใบลงชื่อ</span><span>เลขอ้างอิง ' + esc(m.ref) + ' · พิมพ์ ' + esc(m.printedAt) + '</span></div>' +
+    '<div class="drv-hd"><span class="drv-form">' + esc(pg.form) + '</span><span class="drv-no">ใบที่ <b>' + pg.k + '</b> / ' + pg.n + '</span></div>' +
+    '<div class="dss-t1">แบบบันทึกเวลาการปฏิบัติงาน (' + esc(pg.clinic) + ')</div>' +
+    '<div class="dss-t2">ประจำเดือน ' + esc(pg.month) + '   ตำแหน่ง ' + esc(pg.posName) + '   ใบที่ ' + pg.k + '</div>' +
+    '<table class="dss-t drv-t" style="width:' + tw + 'px"><colgroup>' + W.map(function(w){ return '<col style="width:' + w + 'px">'; }).join('') + '</colgroup><thead><tr><th>วัน</th><th>วันที่</th><th>รหัส</th><th>ชื่อ - นามสกุล</th>' + (pg.unit ? '<th>จุด<br>ปฏิบัติงาน</th>' : '') + '<th>เข้า</th><th>ออก</th><th>OT</th><th>ตรวจสแกน</th><th>✓</th></tr></thead><tbody>';
+  pg.rows.forEach(function(r){
+    var b = r.bg ? ' style="background:' + r.bg + '"' : '';
+    h += '<tr' + (r.dup ? ' class="dup"' : '') + '><td class="c"' + b + '>' + esc(r.dow) + '</td><td class="c"' + b + '>' + esc(r.date) + '</td><td class="c">' + esc(r.code || '') + '</td><td class="nm">' + (r.closed ? '<span class="drv-cl">— ปิดคลินิก —</span>' : esc(r.name || '')) + (r.dup ? ' <b class="drv-dup">(เลขใบซ้ำ)</b>' : '') + '</td>' +
+      (pg.unit ? '<td class="c sm">' + esc(r.unit || '') + '</td>' : '') + '<td class="c">' + esc(r.tin || '') + '</td><td class="c">' + esc(r.tout || '') + '</td><td class="c">' + esc(r.ot || '') + '</td><td class="sm">' + esc(r.scan || '') + '</td><td></td></tr>';
+  });
+  return h + '</tbody></table><div class="dss-note">ช่อง ✓ = ผู้ตรวจทานติ๊กเมื่อตรงกับใบลงชื่อจริง · แถวที่ไม่ตรงให้แก้ในระบบ (หน้า บันทึกเวลาปฏิบัติงาน → ดูเป็นใบ)</div>' +
+    '<div class="drv-foot"><span>พิมพ์โดย ' + esc(m.printedBy) + '</span><span>' + esc(pg.posName) + ' · ใบที่ ' + pg.k + ' / ' + pg.n + '</span></div></div>';
+}
+/** 1 ต.ค. 69 ตารางเวรสำหรับแจกหน่วยงาน (A4 แนวนอน แบบ Google Sheet) 1 ตำแหน่ง = 1 หน้า */
+function docRosterHtml(r, p, i, n){
+  var nD = r.dates.length, wNo = 28, wName = 168, wHr = 104, wDay = 23, wTot = 34;
+  var tw = wNo + wName + wHr + wDay * nD + wTot;
+  var bg = function(x){ return x.bg ? ' style="background:' + x.bg + '"' : ''; };
+  var rowH = Math.max(20, Math.min(30, Math.floor((730 * Math.max(1, tw / 1062) - 250) / Math.max(1, p.rows.length + 3))));
+  var h = '<div class="dt drs" style="width:' + tw + 'px"><div class="dt-h1">ตารางเวรปฏิบัติงาน ' + esc(p.clinic) + '</div>' +
+    '<div class="dt-h2">ตำแหน่ง ' + esc(p.name) + '   ประจำเดือน ' + esc(r.month) + '</div><div class="dt-h3">' + esc(r.org) + '</div>' +
+    (r.demo ? '<div class="dt-mark">ข้อมูลทดลอง</div>' : p.draft ? '<div class="dt-mark">ฉบับร่าง – ตารางเวรยังไม่ได้รับอนุมัติครบ' + (p.pending ? ' (เครื่องหมาย * = รออนุมัติ ' + p.pending + ' เวร)' : '') + '</div>' : '<div class="dt-gap"></div>') +
+    '<table class="dt-t"><colgroup><col style="width:' + wNo + 'px"><col style="width:' + wName + 'px"><col style="width:' + wHr + 'px">' + r.dates.map(function(){ return '<col style="width:' + wDay + 'px">'; }).join('') + '<col style="width:' + wTot + 'px"></colgroup>' +
+    '<thead><tr><th rowspan="2">ที่</th><th rowspan="2">ชื่อ - นามสกุล</th><th rowspan="2">ตำแหน่ง</th>' + r.dates.map(function(x){ return '<th class="dn"' + bg(x) + '>' + x.d + '</th>'; }).join('') + '<th rowspan="2">รวม<br>(เวร)</th></tr><tr>' +
+    r.dates.map(function(x){ return '<th class="dw"' + bg(x) + '>' + esc(x.dow) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  p.rows.forEach(function(x, j){
+    h += '<tr style="height:' + rowH + 'px"><td class="c">' + (j + 1) + '</td><td class="nm">' + esc(x.name) + '</td><td class="ps">' + esc(x.hr) + '</td>' +
+      x.days.map(function(v, k){ var cl = r.dates[k].closed; return '<td class="d' + (cl ? ' cl' : '') + '"' + bg(r.dates[k]) + '>' + esc(v) + '</td>'; }).join('') + '<td class="t">' + x.n + '</td></tr>';
+  });
+  var tot = p.rows.reduce(function(a, x){ return a + x.n; }, 0);
+  h += '<tr class="sum"><td colspan="3" class="c">ลงเวรแล้ว (คน)</td>' + p.count.map(function(v, k){ var q = p.quota[k], over = q > 0 && v > q, lack = q > 0 && v < q; return '<td class="c' + (over ? ' over' : lack ? ' lack' : '') + '">' + (v || (r.dates[k].closed ? '' : '0')) + '</td>'; }).join('') + '<td class="t">' + tot + '</td></tr>' +
+    '<tr class="sum q"><td colspan="3" class="c">กรอบต่อวัน (คน)</td>' + p.quota.map(function(q, k){ return '<td class="c">' + (r.dates[k].closed ? '' : q || '-') + '</td>'; }).join('') + '<td></td></tr></tbody></table>' +
+    '<div class="dt-leg">ตัวย่อเวร: ' + esc(r.labels) + ' · * = รออนุมัติ · ช่องสีตามประเภทวัน (เสาร์-อาทิตย์ / วันหยุด) · ตัวเลขสีแดง = เกินกรอบ ตัวเลขเอียง = ยังไม่ครบกรอบ</div>' +
+    '<div class="drs-note"><b>หมายเหตุ</b> ตารางนี้เป็นตารางเวรตามที่ลงไว้ในระบบ ณ วันที่พิมพ์ ใช้เพื่อแจ้งให้ทราบเท่านั้น ไม่ใช่เอกสารบันทึกเวลาปฏิบัติงานหรือเอกสารประกอบการเบิกจ่าย · หากมีการแลกเวร ขอเปลี่ยนแปลง หรือยกเลิกเวร กรุณาติดต่อเจ้าหน้าที่ประสานงานคลินิก</div>' +
+    '<div class="dt-foot"><i>' + esc(r.foot) + '</i><span>หน้า ' + i + ' / ' + n + '</span></div></div>';
+  return h;
+}
+function printRosterDoc(r){ return printDoc({ orient: 'landscape', title: r.title, pages: r.pages.map(function(p, i){ return docRosterHtml(r, p, i + 1, r.pages.length); }) }); }
 function printTablesDoc(r){ return printDoc({ orient: 'landscape', title: r.title, pages: r.pages.map(function(m, i){ return docTableHtml(m, r.foot, i + 1, r.pages.length); }) }); }
 function printSignDoc(r){ return printDoc({ orient: 'portrait', title: r.title, pages: r.pages.map(function(pg){ return docSignSheetHtml(pg, r.foot); }) }); }
 

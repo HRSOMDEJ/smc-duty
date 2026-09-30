@@ -1,4 +1,4 @@
-var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-30.2', SMC_BUILD_TH = '30 ก.ย. 2569';
+var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-30.3', SMC_BUILD_TH = '30 ก.ย. 2569';
 /* BRAND (ชื่อระบบ โลโก้ สี ประกาศ): อ่านค่าที่แคชไว้ในเครื่องก่อน แล้วขอค่าล่าสุดจาก backend ตอนเริ่มแอป (ดู init ใน help.js) */
 var BRAND = (function(){ try { return JSON.parse(localStorage.getItem('smc_brand') || 'null'); } catch (e) { return null; } })();
 /* ================= แกนหลัก ================= */
@@ -182,10 +182,20 @@ function viaGas(){ return !!(window.google && google.script && google.script.run
  * - อ่านข้อมูล: ถ้าเครือข่ายสะดุด/เซิร์ฟเวอร์ Google ไม่ว่าง ลองใหม่อัตโนมัติสูงสุด 3 ครั้ง (รอ 0.7 / 1.6 / 3.2 วินาที)
  * - บันทึกข้อมูล: ไม่ลองซ้ำอัตโนมัติ (กันบันทึกซ้ำ) แต่แจ้งให้ตรวจสอบก่อนกดใหม่
  */
-var NET = { active: 0, queue: [], MAX: 4 };
-function netSlot(){ return new Promise(function(res){ if (NET.active < NET.MAX) { NET.active++; res(); } else NET.queue.push(res); }); }
-function netDone(){ var n = NET.queue.shift(); if (n) n(); else NET.active = Math.max(0, NET.active - 1); }
-function isReadAction(a){ return /^(get|list|bootstrap|branding|ping|suggest|login|print)/.test(a); }
+var NET = { active: 0, queue: [], bgq: [], bgActive: 0, MAX: 4 };
+/* 1 ต.ค. 69 คิวมี 2 ระดับ: งานที่ผู้ใช้กดได้ช่องก่อนเสมอ · งานเบื้องหลัง (โหลดล่วงหน้า/ถามเลขรุ่น) ทำได้ทีละ 1 และเฉพาะตอนไม่มีงานของผู้ใช้ค้าง */
+function netSlot(bg){
+  return new Promise(function(res){
+    if (bg) { NET.bgq.push(res); netPump(); return; }
+    if (NET.active < NET.MAX) { NET.active++; res(); } else NET.queue.push(res);
+  });
+}
+function netPump(){
+  while (NET.queue.length && NET.active < NET.MAX) { NET.active++; NET.queue.shift()(); }
+  if (NET.bgq.length && !NET.queue.length && NET.bgActive < 1 && NET.active < NET.MAX - 1) { NET.active++; NET.bgActive++; var r = NET.bgq.shift(); r.bg = true; r(); }
+}
+function netDone(bg){ NET.active = Math.max(0, NET.active - 1); if (bg) NET.bgActive = Math.max(0, NET.bgActive - 1); netPump(); }
+function isReadAction(a){ return /^(get|list|bootstrap|branding|ping|suggest|login|print|multi)/.test(a); }
 function netErr(kind, msg){ var e = new Error(msg); e.net = kind; return e; }
 function fetchOnce(action, payload, timeoutMs){
   var ctl = window.AbortController ? new AbortController() : null;
@@ -203,22 +213,23 @@ function fetchOnce(action, payload, timeoutMs){
     }, function(e){ throw (e && e.name === 'AbortError') ? netErr('timeout', 'เซิร์ฟเวอร์ตอบช้าเกินกำหนด') : netErr('offline', 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ (' + (e && e.message ? e.message : 'network') + ')'); })
     .then(function(x){ if (timer) clearTimeout(timer); return x; }, function(e){ if (timer) clearTimeout(timer); throw e; });
 }
-function rawCall(action, payload, timeoutMs){
+function rawCall(action, payload, timeoutMs, bg){
   if (viaGas()) return new Promise(function(resolve, reject){ google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).rpc(action, S.token, payload || {}); });
   if (!API_URL) return Promise.reject(new Error('ยังไม่ได้ตั้งค่าลิงก์ระบบ (config.js)'));
-  var read = isReadAction(action), waits = [700, 1600, 3200], tries = 0;
-  var slow = setTimeout(function(){ slowHint(true); }, 3500);
+  var read = isReadAction(action), waits = bg ? [2000] : [700, 1600, 3200], tries = 0;
+  var slow = bg ? null : setTimeout(function(){ slowHint(true); }, 3500);
   var attempt = function(){
-    return netSlot().then(function(){ return fetchOnce(action, payload, timeoutMs); })
-      .then(function(x){ netDone(); return x; }, function(e){
-        netDone();
+    return netSlot(bg).then(function(){ return fetchOnce(action, payload, timeoutMs); })
+      .then(function(x){ netDone(bg); return x; }, function(e){
+        netDone(bg);
         if (read && e.net !== 'timeout' && tries < waits.length) { var w = waits[tries++] + Math.random() * 300; return new Promise(function(r){ setTimeout(r, w); }).then(attempt); }
         if (read && tries) e.message += ' · ระบบลองเชื่อมต่อใหม่ให้แล้ว ' + tries + ' ครั้ง';
         if (!read && e.net === 'offline') e.message += '\nรายการนี้อาจบันทึกสำเร็จแล้ว กรุณากดรีเฟรชหน้าเพื่อตรวจสอบก่อนบันทึกซ้ำ';
         throw e;
       });
   };
-  return attempt().then(function(x){ clearTimeout(slow); slowHint(false); return x; }, function(e){ clearTimeout(slow); slowHint(false); throw e; });
+  var off = function(){ if (slow) { clearTimeout(slow); slowHint(false); } };
+  return attempt().then(function(x){ off(); return x; }, function(e){ off(); throw e; });
 }
 /** แจ้งเบา ๆ เมื่อเซิร์ฟเวอร์ตอบช้า (ไม่ต้องกดปิด) */
 var SLOWN = 0;
@@ -228,19 +239,20 @@ function slowHint(on){
   if (!el) { el = document.createElement('div'); el.id = 'slowHint'; el.className = 'slow-hint'; el.innerHTML = '<span class="dotflash"><i></i><i></i><i></i></span> กำลังรอเซิร์ฟเวอร์ Google ตอบกลับ…'; document.body.appendChild(el); }
   el.classList.toggle('show', SLOWN > 0);
 }
-/* ================= แคชข้อมูลในเครื่อง + เลขรุ่นข้อมูล (29 ก.ย. 69) =================
- * ทุกคำตอบจากเซิร์ฟเวอร์มี "เลขรุ่นข้อมูล" (dv) ซึ่งเปลี่ยนทุกครั้งที่มีผู้ใดบันทึกข้อมูล
- * - เปิดหน้าที่เคยเปิดแล้ว: แสดงข้อมูลที่จำไว้ทันที (0 วินาที)
- * - ถ้าเลขรุ่นยังเท่าเดิม (ไม่มีใครแก้ข้อมูล) → ไม่ถามเซิร์ฟเวอร์เลย
- * - ถ้าเลขรุ่นเปลี่ยน → แสดงของเดิมไปก่อน พร้อมป้าย "กำลังอัปเดต" แล้วโหลดของใหม่มาแทนเบื้องหลัง
- * - ระบบถามเลขรุ่นล่าสุดเบา ๆ ทุก 90 วินาที (เฉพาะตอนเปิดหน้าจออยู่) · บันทึกข้อมูลแล้วไม่ต้องล้างแคชทั้งหมดอีก
+/* ================= แคชข้อมูลในเครื่อง + เลขรุ่นข้อมูล =================
+ * 29 ก.ย. 69: ทุกคำตอบมี "เลขรุ่นข้อมูล" (dv) เลขเดียวทั้งระบบ
+ * 1 ต.ค. 69: เลขรุ่นแยกส่วน (dep) — ข้อมูลแต่ละหน้าจำไว้ว่าขึ้นกับส่วนไหน เช่น "ตำแหน่ง P05 เดือน ก.ย." / "ตำแหน่งทั้งหมด" / "ปฏิทิน"
+ * - เปิดหน้าที่เคยเปิด: แสดงของที่จำไว้ทันที (0 วินาที)
+ * - ถ้าส่วนที่หน้านั้นใช้ไม่มีใครแก้ → ไม่โหลดใหม่เลย (แม้คนอื่นกำลังบันทึกตำแหน่งอื่นอยู่)
+ * - ถ้าไม่แน่ใจ → ถามเลขรุ่นสั้น ๆ ก่อน (ไม่กี่ร้อยไบต์) แล้วจึงโหลดเฉพาะหน้าที่เปลี่ยนจริง
+ * - ถามเลขรุ่นเบื้องหลังทุก 90 วินาที (เฉพาะตอนเปิดหน้าจออยู่) · บันทึกแล้วรู้ทันทีว่าหน้าไหนต้องโหลดใหม่
  * แยกตามผู้ใช้ · ล้างทั้งหมดเมื่อออกจากระบบ */
 var MEMO = {};
 function memoKey(action, payload){ return action + '|' + JSON.stringify(payload || {}); }
 function memoClear(){ MEMO = {}; }
 var DV = { v: store('smc_dv') || '', at: 0 };
 function dvNum(v){ v = String(v || ''); return v.length >= 8 ? (parseInt(v.slice(0, 8), 36) || 0) : 0; }
-/** รับเลขรุ่นจากเซิร์ฟเวอร์ · คำตอบของการอ่านข้อมูลรับเฉพาะเลขที่ใหม่กว่า (กันคำตอบที่มาช้าย้อนเลขรุ่น) · การบันทึก/การถามเลขรุ่น (sure) รับเสมอ */
+/** รับเลขรุ่นรวมจากเซิร์ฟเวอร์ (หน้าเว็บ/หลังบ้านรุ่นเก่า) */
 function dvSeen(v, sure){
   if (!v) return;
   if (sure || !DV.v || v === DV.v || dvNum(v) > dvNum(DV.v)) {
@@ -248,22 +260,43 @@ function dvSeen(v, sure){
     DV.at = Date.now();
   }
 }
-/** ข้อมูลในเครื่องยังเป็นปัจจุบันหรือไม่ */
-function isCurrent(ce){
-  if (!ce || !ce.dv || ce.dv !== DV.v) return false;
-  var age = Date.now() - (ce.t || 0);
-  if (age < 20000) return true;                                     // เพิ่งได้มา (เช่น มาพร้อมการเข้าสู่ระบบ)
-  return age < 15 * 60000 && Date.now() - DV.at < 100000;          // เลขรุ่นเพิ่งยืนยันกับเซิร์ฟเวอร์ และข้อมูลไม่เกิน 15 นาที
+/* เลขรุ่นแยกส่วนที่รู้ล่าสุด {scope: ver} + เวลาที่ยืนยันกับเซิร์ฟเวอร์ */
+var VERS = (function(){ try { return JSON.parse(store('smc_vers') || '{}') || {}; } catch (e) { return {}; } })(), VAT = {}, versT = null;
+function versSeen(m){
+  if (!m) return;
+  var now = Date.now(), ch = false;
+  Object.keys(m).forEach(function(k){ var v = m[k]; if (!VERS[k] || dvNum(v) >= dvNum(VERS[k]) || v === VERS[k]) { if (VERS[k] !== v) ch = true; VERS[k] = v; } VAT[k] = now; });
+  if (ch) { clearTimeout(versT); versT = setTimeout(function(){ var ks = Object.keys(VERS); if (ks.length > 400) ks.slice(0, ks.length - 400).forEach(function(k){ delete VERS[k]; }); try { store('smc_vers', JSON.stringify(VERS)); } catch (e) { } }, 300); }
 }
-var PC_PRE = 'smc_c:', PC_MAX = 16;
+var CACHE_MAX_AGE = 2 * 3600000;   // ข้อมูลที่มีเลขรุ่นแยกส่วน ใช้ได้นานสุด 2 ชม. (ไม่มีใครแก้)
+/** สถานะของข้อมูลที่จำไว้: 'cur' = ใช้ได้เลย · 'check' = เลขรุ่นตรงแต่ยังไม่ได้ยืนยันเร็ว ๆ นี้ (ถามเลขรุ่นก่อน) · 'stale' = ต้องโหลดใหม่ */
+function cacheState(ce){
+  if (!ce) return 'stale';
+  var age = Date.now() - (ce.t || 0);
+  if (ce.dep) {
+    if (age > CACHE_MAX_AGE) return 'stale';
+    var ks = Object.keys(ce.dep), recent = true;
+    for (var i = 0; i < ks.length; i++) {
+      var k = ks[i], known = VERS[k];
+      if (known && known !== ce.dep[k] && dvNum(known) >= dvNum(ce.dep[k])) return 'stale';
+      if (!VAT[k] || Date.now() - VAT[k] > 100000) recent = false;
+    }
+    return recent || age < 20000 ? 'cur' : 'check';
+  }
+  if (!ce.dv || ce.dv !== DV.v) return 'stale';
+  if (age < 20000) return 'cur';
+  return (age < 15 * 60000 && Date.now() - DV.at < 100000) ? 'cur' : 'stale';
+}
+function isCurrent(ce){ return cacheState(ce) === 'cur'; }
+var PC_PRE = 'smc_c:', PC_MAX = 24;
 function pcUser(){ return (S.boot && S.boot.me && S.boot.me.empCode) || ''; }
 function pcKey(mk){ return PC_PRE + pcUser() + ':' + mk; }
 function pcGetE(mk){ if (!pcUser()) return null; try { var v = localStorage.getItem(pcKey(mk)); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function pcGet(mk){ var e = pcGetE(mk); return e ? e.d : null; }
 function pcIdx(){ try { return JSON.parse(localStorage.getItem(PC_PRE + 'idx') || '[]'); } catch (e) { return []; } }
-function pcSet(mk, d, dv, t){
+function pcSet(mk, d, dv, t, dep){
   if (!pcUser()) return;
-  var s = JSON.stringify({ t: t || Date.now(), dv: dv || '', d: d, mk: mk }); if (s.length > 1500000) return;
+  var s = JSON.stringify({ t: t || Date.now(), dv: dv || '', dep: dep || null, d: d, mk: mk }); if (s.length > 2500000) return;
   for (var tries = 0; tries < 4; tries++) {
     try {
       localStorage.setItem(pcKey(mk), s);
@@ -277,7 +310,7 @@ function pcSet(mk, d, dv, t){
   }
 }
 function pcClear(){ try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf(PC_PRE) === 0) localStorage.removeItem(k); }); } catch (e) { } }
-function cachePut(mk, d, dv){ var e = { d: d, t: Date.now(), dv: dv || DV.v }; MEMO[mk] = e; pcSet(mk, d, e.dv, e.t); }
+function cachePut(mk, d, dv, dep){ var e = { d: d, t: Date.now(), dv: dv || DV.v, dep: dep || null }; MEMO[mk] = e; if (dep) versSeen(dep); pcSet(mk, d, e.dv, e.t, e.dep); }
 /** ป้ายเล็ก "กำลังอัปเดตข้อมูลล่าสุด" ระหว่างแสดงข้อมูลที่จำไว้ */
 var STALEN = 0;
 function staleHint(on){
@@ -286,32 +319,61 @@ function staleHint(on){
   if (!el) { el = document.createElement('div'); el.id = 'staleHint'; el.className = 'stale-hint'; el.setAttribute('role', 'status'); el.innerHTML = '<span class="spinner-border"></span> กำลังอัปเดตข้อมูลล่าสุด…'; document.body.appendChild(el); }
   el.classList.toggle('show', STALEN > 0);
 }
-/** ถามเลขรุ่นล่าสุด (เบามาก) · ทุก 90 วินาทีขณะเปิดหน้าจอ และทันทีเมื่อกลับมาที่แท็บนี้ */
-var dvPollBusy = false;
+/** ส่วนข้อมูลทั้งหมดที่ข้อมูลในเครื่องขึ้นอยู่ (ใช้ถามเลขรุ่น) */
+function knownScopes(){
+  var set = {};
+  Object.keys(MEMO).forEach(function(k){ var e = MEMO[k]; if (e && e.dep) Object.keys(e.dep).forEach(function(s){ set[s] = 1; }); });
+  var pre = PC_PRE + pcUser() + ':';
+  pcIdx().forEach(function(k){ if (k.indexOf(pre) !== 0) return; try { var e = JSON.parse(localStorage.getItem(k) || 'null'); if (e && e.dep) Object.keys(e.dep).forEach(function(s){ set[s] = 1; }); } catch (x) { } });
+  return Object.keys(set).slice(0, 200);
+}
+/** ถามเลขรุ่น (เบามาก) · scopes = ส่วนที่ต้องการ (ไม่ระบุ = ทุกส่วนที่จำไว้) · bg = เบื้องหลัง */
+var pingP = null;
+function verCheck(scopes, bg){
+  if (viaGas() || !API_URL || !S.token) return Promise.resolve(false);
+  if (pingP && !scopes) return pingP;
+  var sc = scopes || knownScopes();
+  var p = netSlot(bg).then(function(){ return fetchOnce('ping', { scopes: sc }, 30000); })
+    .then(function(x){ netDone(bg); if (x && x.dv) dvSeen(x.dv, true); if (x && x.data && x.data.vers) versSeen(x.data.vers); return !!(x && x.ok); }, function(){ netDone(bg); return false; });
+  if (!scopes) { pingP = p; p.then(function(){ pingP = null; }); }
+  return p;
+}
 function dvPoll(){
-  if (dvPollBusy || document.hidden || !S.token || viaGas() || !API_URL) return;
+  if (document.hidden || !S.token || viaGas() || !API_URL) return;
   if (Date.now() - DV.at < 60000) return;
-  dvPollBusy = true;
-  netSlot().then(function(){ return fetchOnce('ping', {}, 30000); }).then(function(x){ netDone(); dvPollBusy = false; if (x && x.dv) dvSeen(x.dv, true); }, function(){ netDone(); dvPollBusy = false; });
+  verCheck(null, true);
 }
 setInterval(dvPoll, 90000);
 document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(dvPoll, 400); });
-/** หลังเข้าระบบ: โหลดหน้าที่ผู้ใช้เปิดบ่อย (ที่ข้อมูลเก่าแล้ว) ไว้ล่วงหน้าเบื้องหลัง ทีละรายการ ครั้งละไม่เกิน 4 หน้า */
-var prefetchDone = false;
-function prefetchRecent(){
-  if (prefetchDone || !S.token || viaGas()) return; prefetchDone = true;
-  var pre = PC_PRE + pcUser() + ':';
-  var list = pcIdx().filter(function(k){ return k.indexOf(pre) === 0; }).reverse().map(function(k){ try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } })
-    .filter(function(e){ return e && e.mk && !isCurrent(MEMO[e.mk] || e); }).slice(0, 4);
-  var chain = Promise.resolve();
-  list.forEach(function(e){
-    var i = e.mk.indexOf('|'), action = e.mk.slice(0, i), payload = JSON.parse(e.mk.slice(i + 1) || '{}');
-    chain = chain.then(function(){
-      if (document.hidden || !S.token) return;
-      return netSlot().then(function(){ return fetchOnce(action, payload); }).then(function(x){ netDone(); if (x && x.dv) dvSeen(x.dv); if (x && x.ok) cachePut(e.mk, x.data, x.dv); }, function(){ netDone(); });
-    });
+/** 1 ต.ค. 69 หลังเข้าระบบ: หน้าที่ผู้ใช้เปิดบ่อย (ที่ข้อมูลเก่าแล้ว) โหลดมาพร้อมกันใน "คำขอเดียว" (เดิมทีละหน้า 4 รอบ)
+ * ทำเป็นงานเบื้องหลัง ไม่แย่งช่องของหน้าที่ผู้ใช้กำลังเปิด · หลังจากนั้นกดเมนูแล้วขึ้นทันที */
+var prefetchDone = false, MULTI_OK = true;
+function prefetchRecent(extra){
+  if (prefetchDone || !S.token || viaGas() || !API_URL) return; prefetchDone = true;
+  var pre = PC_PRE + pcUser() + ':', seen = {};
+  var list = (extra || []).map(function(x){ return { mk: memoKey(x.action, x.payload) }; }).concat(pcIdx().filter(function(k){ return k.indexOf(pre) === 0; }).reverse().map(function(k){ try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }))
+    .filter(function(e){ if (!e || !e.mk || seen[e.mk]) return false; seen[e.mk] = 1; var i = e.mk.indexOf('|'); return /^(get|list)/.test(e.mk.slice(0, i)); });
+  verCheck(null, true).then(function(){
+    var need = list.filter(function(e){ return cacheState(MEMO[e.mk] || pcGetE(e.mk)) !== 'cur'; }).slice(0, 8);
+    if (!need.length || document.hidden || !S.token) return;
+    var calls = need.map(function(e){ var i = e.mk.indexOf('|'); return { action: e.mk.slice(0, i), payload: JSON.parse(e.mk.slice(i + 1) || '{}') }; });
+    return multiCall(calls, true);
   });
 }
+/** หลายคำสั่งอ่านในคำขอเดียว → เก็บลงแคช (หลังบ้านรุ่นเก่าไม่มีคำสั่งนี้ → ถามทีละคำสั่ง) */
+function multiCall(calls, bg){
+  if (!MULTI_OK) return Promise.all(calls.map(function(c){ return rawCall(c.action, c.payload, 0, bg).then(function(x){ if (x && x.dv) dvSeen(x.dv); if (x && x.ok) cachePut(memoKey(c.action, c.payload), x.data, x.dv, x.dep); }, function(){}); }));
+  var mks = calls.map(function(c){ return memoKey(c.action, c.payload); });
+  var p = rawCall('multi', { calls: calls }, 0, bg).then(function(x){
+    if (x && x.dv) dvSeen(x.dv);
+    if (!x || !x.ok || !x.data || !x.data.results) { if (x && /ไม่รู้จักคำสั่ง/.test(x.error || '')) { MULTI_OK = false; mks.forEach(function(k){ delete INFLIGHT[k]; }); return multiCall(calls, bg); } return; }
+    x.data.results.forEach(function(r, i){ if (r && r.ok) cachePut(mks[i], r.data, x.dv, r.dep); });
+  }, function(){});
+  mks.forEach(function(k){ INFLIGHT[k] = p; });
+  p.then(function(){ mks.forEach(function(k){ if (INFLIGHT[k] === p) delete INFLIGHT[k]; }); });
+  return p;
+}
+var INFLIGHT = {};
 /** ป้ายสถานะการบันทึกเบื้องหลัง (มุมซ้ายล่าง): savingChip(+1) เริ่ม · savingChip(-1, true|false) จบ */
 var SAVEN = 0, saveT = null;
 function savingChip(d, ok){
@@ -337,28 +399,43 @@ function api(action, payload, opt){
   if (opt.fresh && opt.onCache) {
     var ce = MEMO[mk] || pcGetE(mk);
     if (ce) {
-      var cur = isCurrent(ce);
+      if (!MEMO[mk]) MEMO[mk] = ce;
+      var st = cacheState(ce);
       shown = JSON.stringify(ce.d);
-      try { opt.onCache(ce.d, { stale: !cur }); } catch (e) { }
-      if (cur) { opt.unchanged = true; return Promise.resolve(ce.d); }   // ข้อมูลในเครื่องเป็นปัจจุบัน ไม่ต้องถามเซิร์ฟเวอร์
+      try { opt.onCache(ce.d, { stale: st !== 'cur' }); } catch (e) { }
+      if (st === 'cur') { opt.unchanged = true; return Promise.resolve(ce.d); }   // ข้อมูลในเครื่องเป็นปัจจุบัน ไม่ต้องถามเซิร์ฟเวอร์
       staleHint(true);
       var stOff = function(x){ staleHint(false); return x; };
-      return api(action, payload, Object.assign({}, opt, { onCache: null, quiet: true })).then(function(d){ stOff(); opt.unchanged = JSON.stringify(d) === shown; return d; }, function(e){
-        stOff();
-        if (e && e.message !== 'SESSION_EXPIRED') notify(e && e.handled ? e.message : 'ยังอัปเดตข้อมูลล่าสุดไม่ได้ (' + (e && e.message || 'เครือข่าย') + ') · แสดงข้อมูลที่จำไว้', 'warning');
-        throw e;
+      var reload = function(){
+        return api(action, payload, Object.assign({}, opt, { onCache: null, quiet: true })).then(function(d){ stOff(); opt.unchanged = JSON.stringify(d) === shown; return d; }, function(e){
+          stOff();
+          if (e && e.message !== 'SESSION_EXPIRED') notify(e && e.handled ? e.message : 'ยังอัปเดตข้อมูลล่าสุดไม่ได้ (' + (e && e.message || 'เครือข่าย') + ') · แสดงข้อมูลที่จำไว้', 'warning');
+          throw e;
+        });
+      };
+      // 1 ต.ค. 69 เลขรุ่นตรงแต่ยังไม่ได้ยืนยัน → ถามเลขรุ่นของส่วนที่หน้านี้ใช้ก่อน (เร็วกว่าโหลดข้อมูลทั้งหน้ามาก)
+      if (st === 'check') return verCheck(Object.keys(ce.dep)).then(function(){
+        if (cacheState(ce) === 'cur') { stOff(); opt.unchanged = true; return ce.d; }
+        return reload();
       });
+      return reload();
     }
+  }
+  // 1 ต.ค. 69 ข้อมูลหน้านี้กำลังโหลดมาพร้อมชุดล่วงหน้าอยู่แล้ว → รอชุดนั้น ไม่ส่งคำขอซ้ำ
+  if (opt.fresh && INFLIGHT[mk] && !opt.noWait) {
+    var t0 = Date.now(); progress(true);
+    return INFLIGHT[mk].then(function(){ progress(false); var e = MEMO[mk]; if (e && e.t >= t0 - 60000 && cacheState(e) !== 'stale') return e.d; return api(action, payload, Object.assign({}, opt, { noWait: true })); });
   }
   progress(true);
   if (opt.btn) btnBusy(opt.btn, true, opt.btnText);
   if (opt.block) blocking(opt.block);
   var done = function(){ progress(false); if (opt.btn) btnBusy(opt.btn, false); if (opt.block) unblock(); };
-  return rawCall(action, payload, opt.timeout).then(function(res){
+  return rawCall(action, payload, opt.timeout, opt.bg).then(function(res){
     done();
     if (!res) { notify('ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์', 'error'); throw new Error('empty'); }
     if (res.dv) dvSeen(res.dv, !isReadAction(action));
-    if (res.ok) { if (opt.fresh) cachePut(mk, res.data, res.dv); return res.data; }
+    if (res.vers) versSeen(res.vers);                          // คำสั่งบันทึก: ส่วนที่เปลี่ยน → หน้าที่จำไว้ของส่วนนั้นจะโหลดใหม่เมื่อเปิด
+    if (res.ok) { if (opt.fresh) cachePut(mk, res.data, res.dv, res.dep); return res.data; }
     if (res.error === 'SESSION_EXPIRED') { var was = !!S.token; store('smc_token', null); store('smc_boot', null); S.token = null; if (was && action !== 'logout') { notify('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง', 'warning'); showLogin(); } throw new Error(res.error); }
     var e = errParts(res.error);
     if (!opt.quiet) alertBox(e.title, e.text, 'warning');
@@ -487,7 +564,7 @@ $('fLogin').addEventListener('submit', function(e){
     var b = r.boot; S.boot = b; S.ym = b.ym;
     try { store('smc_boot', JSON.stringify({ t: S.token.slice(-16), b: b })); } catch (e) { }
     if (r.first) cachePut(memoKey(r.first.action, r.first.payload), r.first.data);
-    setTimeout(prefetchRecent, 2500);
+    setTimeout(function(){ prefetchRecent(prefetchPlan()); }, 1500);
     if (b.me.mustChange || !b.me.hasPhone) return showForce();
     showApp();
     notify('ยินดีต้อนรับ ' + b.me.name.split(' ').slice(0, 2).join(' '));
@@ -526,7 +603,7 @@ function start(fresh){
     if (b.me.mustChange || !b.me.hasPhone) return showForce();
     if (changed) showApp();
     if (fresh) notify('ยินดีต้อนรับ ' + b.me.name.split(' ').slice(0, 2).join(' '));
-    setTimeout(prefetchRecent, 2500);
+    setTimeout(function(){ prefetchRecent(prefetchPlan()); }, 1500);
   }).catch(function(){ if (!S.boot) showLogin(); });
 }
 
@@ -590,7 +667,41 @@ var MENU = [
   { id: 'audit', icon: 'clock-history', text: 'ประวัติการใช้งาน', show: function(){ return has('ADMIN'); } }
 ];
 
+/* 1 ต.ค. 69 จำหน้า/ตำแหน่ง/เดือน/มุมมองที่เปิดอยู่ รีเฟรชแล้วกลับที่เดิม (ไม่เด้งไปภาพรวมทุกตำแหน่ง ซึ่งโหลดนานกว่า) */
+var STICKY = ['ym', 'pid', 'enPid', 'enView', 'ovPid', 'bkPid', 'bkYm', 'fuPid', 'enSheetPid', 'enSheetNo', 'enFilter', 'rvSt', 'exPids'];
+function saveState(){
+  if (!S.boot || !S.boot.me) return;
+  var o = { u: S.boot.me.empCode, t: Date.now(), s: {} };
+  STICKY.forEach(function(k){ if (S[k] !== undefined && S[k] !== null && S[k] !== '') o.s[k] = S[k]; });
+  try { store('smc_state', JSON.stringify(o)); } catch (e) { }
+}
+function restoreState(){
+  try {
+    var o = JSON.parse(store('smc_state') || 'null');
+    if (!o || o.u !== S.boot.me.empCode || Date.now() - o.t > 12 * 3600000) return;
+    STICKY.forEach(function(k){ if (o.s[k] !== undefined && S[k] === undefined) S[k] = o.s[k]; });
+    if (o.s.ym && o.s.ym <= addYm(S.boot.ym, 1) && o.s.ym >= addYm(S.boot.ym, -14)) S.ym = o.s.ym;
+  } catch (e) { }
+}
+window.addEventListener('pagehide', saveState);
+document.addEventListener('visibilitychange', function(){ if (document.hidden) saveState(); });
+/** 1 ต.ค. 69 หน้าหลักของแต่ละบทบาท โหลดมาพร้อมกันหลังเข้าระบบ (คำขอเดียว) → กดเมนูแล้วขึ้นทันที */
+function prefetchPlan(){
+  if (!S.boot || !S.boot.me) return [];
+  var ym = S.ym || S.boot.ym, out = [], mm = function(id){ return MENU.some(function(m){ return m.id === id && m.show(); }); };
+  if (mm('entry')) { var ids = posIdsFor(['ENTRY']); if (ids.length) out.push({ action: 'getEntrySheet', payload: { ym: ym, positionId: S.enPid || (ids.indexOf(S.pid) >= 0 ? S.pid : usualFirst(ids)) } }); }
+  if (mm('dashboard')) out.push({ action: 'getDashboard', payload: { ym: ym } });
+  out.push({ action: 'getMyMonth', payload: { ym: ym } });
+  out.push({ action: 'getScheduleOverview', payload: { ym: ym } });
+  if (mm('submit')) out.push({ action: 'getSubmitBoard', payload: { ym: ym } });
+  if (mm('review')) out.push({ action: 'getApprovalBoard', payload: { ym: ym } });
+  if (mm('employees') && has('COORD')) out.push({ action: 'listEmployees', payload: { v2: 1, all: !!S.emAll } });
+  return out;
+}
+/** ตำแหน่งที่ใช้บ่อยที่สุดในรายการ */
+function usualFirst(ids){ return (S.boot.usualPositions || []).filter(function(id){ return ids.indexOf(id) >= 0; })[0] || ids[0]; }
 function showApp(){
+  restoreState();
   showOnly('vApp');
   applyBrand(BRAND);
   if (store('smc_side_min')) $('vApp').classList.add('side-min');
@@ -631,6 +742,7 @@ function empOptions(list, pid, opt){
   return ok.map(function(e){ return one(e, false); }).join('') + more.map(function(e){ return one(e, true); }).join('');
 }
 function go(page){
+  if (S.page) saveState();
   S.page = page; store('smc_page', page);
   var mm = MENU.filter(function(m){ return m.id === page; })[0];
   if ($('topTitle')) $('topTitle').textContent = mm ? mm.text : '';

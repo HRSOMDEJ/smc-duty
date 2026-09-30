@@ -177,17 +177,23 @@ PAGES.employees = function(){
     '<div><label class="form-label" for="emDiv">ฝ่าย</label><select class="form-select" data-search id="emDiv"><option value="">ทุกฝ่าย</option></select></div>' +
     '<div><label class="form-label" for="emSort">เรียงตาม</label><select class="form-select" id="emSort"><option value="div">ฝ่าย แล้วรหัสเจ้าหน้าที่</option><option value="unit">หน่วยงาน แล้วรหัสเจ้าหน้าที่</option><option value="code">รหัสเจ้าหน้าที่</option><option value="name">ชื่อ</option></select></div>' +
     '<div><label class="form-label" for="emSt">สถานะ</label><select class="form-select" id="emSt"><option value="">ทั้งหมด</option><option value="ACTIVE" selected>ปฏิบัติงาน</option><option value="INACTIVE">พ้นสภาพ</option></select></div>' +
+    '<div class="align-self-end"><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="emAllP"' + (S.emAll ? ' checked' : '') + '><label class="form-check-label small" for="emAllP">แสดงบุคลากรทั้งหมดในระบบ (ไม่ใช่เฉพาะ SMC)</label></div></div>' +
     '<div class="ms-auto small-muted align-self-end" id="emCnt"></div></div><div id="emBody">' + skeleton(10) + '</div>';
   mount(h);
-  $('emQ').oninput = drawEmp; $('emSt').onchange = drawEmp; $('emSort').onchange = drawEmp; $('emDiv').onchange = function(){ fillUnits(); drawEmp(); }; $('emUnit').onchange = drawEmp;
+  var qt = null; $('emQ').oninput = function(){ clearTimeout(qt); qt = setTimeout(function(){ S.emShow = 100; drawEmp(); }, 150); };
+  $('emAllP').onchange = function(){ S.emAll = this.checked; loadEmp(); };
+  S.emShow = 100; $('emSt').onchange = drawEmp; $('emSort').onchange = drawEmp; $('emDiv').onchange = function(){ fillUnits(); drawEmp(); }; $('emUnit').onchange = drawEmp;
   loadEmp();
 };
 function divShort(s){ return String(s || '').replace(/^รพ\.สมเด็จฯ\s*-\s*/, ''); }
 function loadEmp(){
-  api('listEmployees').then(function(l){
-    S._em = l;
-    var divs = {}; l.forEach(function(e){ if (e.division) divs[e.division] = 1; });
-    $('emDiv').innerHTML = '<option value="">ทุกฝ่าย</option>' + Object.keys(divs).sort().map(function(d){ return '<option value="' + esc(d) + '">' + esc(divShort(d)) + '</option>'; }).join('');
+  // 1 ต.ค. 69 โหลดครั้งเดียวแล้วจำไว้ (เปิดครั้งต่อไปขึ้นทันที) · ค้นหา/กรองในเครื่อง · แสดงทีละ 100 แถว
+  apiView('listEmployees', { v2: 1, all: !!S.emAll }, function(r){
+    if (!$('emBody')) return;
+    var l = Array.isArray(r) ? r : r.list;
+    S._em = l; S._emTotal = Array.isArray(r) ? l.length : r.total;
+    var divs = {}, curDv = $('emDiv').value; l.forEach(function(e){ if (e.division) divs[e.division] = 1; });
+    $('emDiv').innerHTML = '<option value="">ทุกฝ่าย</option>' + Object.keys(divs).sort().map(function(d){ return '<option value="' + esc(d) + '"' + (d === curDv ? ' selected' : '') + '>' + esc(divShort(d)) + '</option>'; }).join('');
     comboSync($('emDiv')); fillUnits(); drawEmp();
   }).catch(function(){});
 }
@@ -204,11 +210,12 @@ function drawEmp(){
   var list = S._em.filter(function(e){ return (!st || e.status === st) && (!dv || e.division === dv) && (!un || e.orgUnit === un) && (!q || (e.empCode + ' ' + e.fullName + ' ' + e.hrPosition + ' ' + e.orgUnit + ' ' + e.division).toLowerCase().indexOf(q) >= 0); });
   var so = $('emSort').value, byCode = function(a, b){ return (+a.empCode || 0) - (+b.empCode || 0); }, txt = function(x, y){ if (x === y) return 0; if (!x) return 1; if (!y) return -1; return x.localeCompare(y, 'th'); };
   list.sort(so === 'code' ? byCode : so === 'name' ? function(a, b){ return txt(a.firstName || a.fullName, b.firstName || b.fullName); } : so === 'unit' ? function(a, b){ return txt(a.orgUnit, b.orgUnit) || byCode(a, b); } : function(a, b){ return txt(a.division, b.division) || byCode(a, b); });
-  $('emCnt').textContent = list.length + ' คน';
+  $('emCnt').textContent = list.length + ' คน' + (!S.emAll && S._emTotal > S._em.length ? ' (เฉพาะบุคลากร SMC จากทั้งหมด ' + S._emTotal + ' คน)' : '');
+  var lim = S.emShow || 100;
   $('emBody').innerHTML = '<div class="tbl"><table class="table table-hover"><thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง (HR)</th><th>หน่วยงาน</th><th>ฝ่าย</th><th>สถานะ</th><th>โทรศัพท์</th><th>ขึ้นเวรได้เฉพาะตำแหน่ง</th></tr></thead><tbody>' +
-    (list.slice(0, 600).map(function(e){ return '<tr class="cursor ' + (e.status === 'INACTIVE' ? 'inactive' : '') + '" onclick="empModal(\'' + e.empCode + '\')"><td class="tnum">' + e.empCode + '</td><td><div class="who"><b>' + esc(e.fullName) + '</b></div></td><td>' + esc(e.hrPosition) + '</td><td class="small">' + esc(e.orgUnit) + '</td><td class="small">' + esc(divShort(e.division)) + '</td>' +
+    (list.slice(0, lim).map(function(e){ return '<tr class="cursor ' + (e.status === 'INACTIVE' ? 'inactive' : '') + '" onclick="empModal(\'' + e.empCode + '\')"><td class="tnum">' + e.empCode + '</td><td><div class="who"><b>' + esc(e.fullName) + '</b></div></td><td>' + esc(e.hrPosition) + '</td><td class="small">' + esc(e.orgUnit) + '</td><td class="small">' + esc(divShort(e.division)) + '</td>' +
       '<td>' + (e.status === 'ACTIVE' ? '<span class="pill p-ok">ปฏิบัติงาน</span>' : '<span class="pill p-bad">พ้นสภาพ</span>') + '</td>' +
-      '<td class="tnum">' + esc(e.phone) + '</td><td class="small-muted">' + (e.allowedPositions.length ? e.allowedPositions.map(posName).map(esc).join(', ') : 'ทุกตำแหน่ง') + '</td></tr>'; }).join('') || '<tr><td colspan="8">' + empty('search', 'ไม่พบบุคลากรตามเงื่อนไข') + '</td></tr>') + '</tbody></table></div>' + (list.length > 600 ? '<div class="small-muted mt-2">แสดง 600 รายการแรก กรุณาระบุเงื่อนไขเพิ่มเติม</div>' : '');
+      '<td class="tnum">' + esc(e.phone) + '</td><td class="small-muted">' + (e.allowedPositions.length ? e.allowedPositions.map(posName).map(esc).join(', ') : 'ทุกตำแหน่ง') + '</td></tr>'; }).join('') || '<tr><td colspan="8">' + empty('search', 'ไม่พบบุคลากรตามเงื่อนไข') + '</td></tr>') + '</tbody></table></div>' + (list.length > lim ? '<div class="text-center mt-2"><button class="btn btn-sm btn-ghost" onclick="S.emShow=(S.emShow||100)+200;drawEmp()"><i class="bi bi-chevron-down"></i> แสดงเพิ่ม (เหลืออีก ' + (list.length - lim) + ' คน)</button></div>' : '');
 }
 function addEmp(b){
   api('addEmployees', { codes: $('emAdd').value }, { btn: b, btnText: 'กำลังดึงข้อมูล' }).then(function(r){
@@ -454,7 +461,7 @@ function drawSettings(){
       '<div class="mt-3 d-flex gap-2 align-items-center flex-wrap"><button class="btn btn-brand" onclick="importLegacy()"><i class="bi bi-upload"></i> เริ่มนำเข้า</button><span class="small-muted">ข้อมูลแต่ละเดือนจัดเก็บเป็นไฟล์ Archive (สถานะอนุมัติแล้ว) · ใช้เวลาประมาณ 2–5 นาที</span></div><div id="impLog" class="mt-3"></div></div></div></div>';
     h += '<div class="col-12"><div class="card"><div class="card-h"><h3><i class="bi bi-gear-wide-connected text-danger"></i> คำสั่งระบบ</h3></div><div class="card-b"><div class="d-flex flex-wrap gap-2 align-items-end mb-2">' + ymSelect('jbYm', S.boot.ym, 14, 1) + '</div><div class="d-flex flex-wrap gap-2">' +
       [['testApi', 'plug', 'ทดสอบการเชื่อมต่อ API'], ['syncEmployees', 'people', 'ปรับปรุงข้อมูลบุคลากร'], ['syncScans', 'fingerprint', 'ดึงข้อมูลสแกนเดือนที่เลือก'], ['recalc', 'calculator', 'คำนวณเดือนที่เลือกใหม่'], ['archive', 'archive', 'จัดเก็บเดือนที่เลือกเข้า Archive'],
-        ['allowedFromHistory', 'person-check', 'กำหนดตำแหน่งที่ขึ้นเวรได้จากประวัติ 12 เดือน'], ['seedV13', 'box-seam', 'อัปเกรดค่าตั้งต้นของระบบ'], ['archiveAudit', 'archive', 'ย้ายประวัติการใช้งานเก่าไปไดรฟ์'], ['installTriggers', 'alarm', 'ติดตั้งงานอัตโนมัติ'], ['clearCache', 'lightning', 'ล้างแคช']].map(function(j){ return '<button class="btn btn-sm btn-ghost" onclick="job(\'' + j[0] + '\',this)"><i class="bi bi-' + j[1] + '"></i> ' + j[2] + '</button>'; }).join('') +
+        ['allowedFromHistory', 'person-check', 'กำหนดตำแหน่งที่ขึ้นเวรได้จากประวัติ 12 เดือน'], ['seedV13', 'box-seam', 'อัปเกรดค่าตั้งต้นของระบบ'], ['archiveAudit', 'archive', 'ย้ายประวัติการใช้งานเก่าไปไดรฟ์'], ['installTriggers', 'alarm', 'ติดตั้งงานอัตโนมัติ'], ['normalizeUnits', 'magic', 'แปลงชื่อจุดปฏิบัติงานรังสี (เดือนที่เลือก)'], ['clearCache', 'lightning', 'ล้างแคช']].map(function(j){ return '<button class="btn btn-sm btn-ghost" onclick="job(\'' + j[0] + '\',this)"><i class="bi bi-' + j[1] + '"></i> ' + j[2] + '</button>'; }).join('') +
       '</div><pre id="jbOut" class="small mt-2 mb-0" style="white-space:pre-wrap"></pre></div></div></div>';
     h += '<div class="col-12"><div class="card"><div class="card-h"><h3><i class="bi bi-sliders text-danger"></i> ค่าระบบ</h3><button class="btn btn-sm btn-brand ms-auto" onclick="saveSet(this)">บันทึกค่าระบบ</button></div><div class="card-b row g-3">' +
       Object.keys(s).filter(function(k){ return k[0] !== '_' && s[k].editable && k.indexOf('signer') < 0; }).map(function(k){ return '<div class="col-md-6"><label class="form-label">' + esc(s[k].note || k) + ' <span class="text-secondary">(' + esc(k) + ')</span></label><input class="form-control" data-set="' + k + '" value="' + esc(s[k].value) + '"></div>'; }).join('') + '</div></div></div>';
