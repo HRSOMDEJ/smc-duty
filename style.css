@@ -730,6 +730,8 @@ tr.cal-row.dk-WEEKEND td,tr.sheet-empty.dk-WEEKEND td{background:var(--d-weekend
 /* 1 ต.ค. 69 ตารางเวรแจกหน่วยงาน */
 .drs .dt-t td.d{font-size:9.5pt;font-weight:600}
 .drs .dt-t td.d.cl{background:#d9d9d9!important}
+.drs .dt-t td.d{line-height:1.05;white-space:normal}
+.drs-nt{display:block;font-size:6.5pt;font-weight:400;line-height:1.05;word-break:break-all}
 .drs .dt-t tr.sum td{height:20px}
 .drs .dt-t tr.sum.q td{font-weight:400;background:#fafafa;border-top:1px solid #444}
 .drs .dt-t td.over{color:#c00000}

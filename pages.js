@@ -208,7 +208,7 @@ PAGES.booking = function(){
   var multi = ids.length > 1;
   // ผู้ใช้ทั่วไป: เปิดครั้งแรกที่ตำแหน่งที่ขึ้นเวรประจำ (ลงเวรได้ทันที)
   if (!S.bkPid && !S.pid && !manageIds().length) S.bkPid = (S.boot.usualPositions || []).filter(function(id){ return ids.indexOf(id) >= 0; })[0] || ids[0];
-  mount(pageHead('งานของฉัน', 'ลงตารางเวร', 'เลือกเดือนและตำแหน่ง แล้วกด "ลงเวร" ในช่วงเวรที่ต้องการ ระบบควบคุมกรอบอัตรากำลังและป้องกันการลงเวรซ้ำช่วงเวลาให้อัตโนมัติ') +
+  mount(pageHead('งานของฉัน', 'ลงตารางเวร', 'เลือกเดือนและตำแหน่ง แล้วกด "ลงเวร" ในช่วงเวรที่ต้องการ ระบบควบคุมกรอบอัตรากำลังและป้องกันการลงเวรซ้ำช่วงเวลาให้อัตโนมัติ', '<button class="btn btn-ghost" onclick="rosterDlg()"><i class="bi bi-printer"></i> พิมพ์ตารางเวร (แจกหน่วยงาน)</button>') +
     '<div class="filters">' + ymSelect('bkYm', S.bkYm || addYm(S.boot.ym, 1), 1, 2) + posSelect('bkPos', ids, S.bkPid || S.pid, multi, manageIds().length ? 'ทุกตาราง' : 'ทุกตาราง (ดูอย่างเดียว)') +
     '<div><label class="form-label">มุมมอง</label><div class="seg" id="bkMode"><button type="button" data-v="cal"' + (S.bkMode !== 'sheet' ? ' class="on"' : '') + '><i class="bi bi-calendar3"></i> ปฏิทิน</button><button type="button" data-v="sheet"' + (S.bkMode === 'sheet' ? ' class="on"' : '') + '><i class="bi bi-grid-3x3"></i> แบบ Google Sheet</button></div></div>' +
     '<div class="ms-auto align-self-end"><button type="button" class="btn btn-sm btn-ghost" onclick="S.ym=$(\'bkYm\').value;go(\'overview\')" title="ดูตารางเวรเดือนก่อน ๆ ย้อนหลังได้ 3 ปี"><i class="bi bi-clock-history"></i> ดูตารางเวรย้อนหลัง</button></div>' +
@@ -1544,10 +1544,11 @@ function exAtt(){ var s = exSel(); if (s) printAttachments($('exYm').value, s); 
 function exRoster(btn){ var s = exSel(); if (!s) return; api('printRoster', { ym: $('exYm').value, positionIds: s }, { btn: btn, block: 'กำลังเตรียมตารางเวรสำหรับพิมพ์…' }).then(printRosterDoc).catch(function(){}); }
 /** หน้าตารางเวรรวม: ทุกคนพิมพ์ตารางเวรแนวนอนของตำแหน่งที่ตนเห็นได้ */
 function rosterDlg(){
-  var ids = viewIds(), cur = $('ovPos') && $('ovPos').value !== 'all' ? [$('ovPos').value] : (S.rosterPids || []);
-  posPickModal('พิมพ์ตารางเวร (แจกหน่วยงาน) · ' + thYm($('ovYm') ? $('ovYm').value : S.ym), ids, cur, '<i class="bi bi-printer"></i> พิมพ์', function(list){
+  var ids = viewIds(), ymEl = $('ovYm') || $('bkYm'), posEl = $('ovPos') || $('bkPos'), ym = ymEl ? ymEl.value : S.ym;
+  var cur = posEl && posEl.value && posEl.value !== 'all' && ids.indexOf(posEl.value) >= 0 ? [posEl.value] : (S.rosterPids || []);
+  posPickModal('พิมพ์ตารางเวร (แจกหน่วยงาน) · ' + thYm(ym), ids, cur, '<i class="bi bi-printer"></i> พิมพ์', function(list){
     S.rosterPids = list;
-    api('printRoster', { ym: $('ovYm') ? $('ovYm').value : S.ym, positionIds: list.length ? list : ['all'] }, { block: 'กำลังเตรียมตารางเวรสำหรับพิมพ์…' }).then(printRosterDoc).catch(function(){});
+    api('printRoster', { ym: ym, positionIds: list.length ? list : ['all'] }, { block: 'กำลังเตรียมตารางเวรสำหรับพิมพ์…' }).then(printRosterDoc).catch(function(){});
   });
 }
 function rosterBtn(){ return ''; }

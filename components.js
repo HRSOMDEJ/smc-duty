@@ -280,7 +280,7 @@ function vwApply(){ var im = $('vwImg'); if (!im) return; var v = window._vw; im
  * ขอเลขอ้างอิงจากเซิร์ฟเวอร์ (บันทึกลงประวัติการใช้งาน) แล้วเปิดหน้าต่างพิมพ์ของเบราว์เซอร์
  */
 function printReport(o){
-  return api('logPrint', { title: o.title, filters: o.filters, count: o.count || 0, kind: o.kind || '' }, { block: 'กำลังเตรียมเอกสารสำหรับพิมพ์…' }).then(function(m){
+  return api('logPrint', { title: o.title, filters: o.filters, count: o.count || 0, kind: o.kind || '' }, { block: 'กำลังเตรียมเอกสารสำหรับพิมพ์…' }).then(function(m){ return uiIdle().then(function(){ return m; }); }).then(function(m){
     var b = BRAND || {};
     var root = $('printRoot');
     root.className = o.portrait ? 'portrait' : 'landscape';
@@ -295,7 +295,7 @@ function printReport(o){
       '<div class="pr-end">— สิ้นสุดรายงาน · จำนวน ' + fmt(o.count || 0) + ' รายการ —</div>' +
       '<div class="pr-foot">พิมพ์โดย ' + esc(m.printedBy) + ' เมื่อ ' + esc(m.printedAt) + ' · เลขอ้างอิง ' + esc(m.ref) + ' · ' + esc(m.system) + '</div></div>';
     document.body.classList.add('printing');
-    var done = function(){ document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+    var done = function(){ document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); setTimeout(uiCleanup, 50); };
     window.addEventListener('afterprint', done);
     setTimeout(function(){ try { window.print(); } catch (e) { alertBox('เปิดหน้าต่างพิมพ์ไม่ได้', 'กรุณากด Ctrl+P (หรือ ⌘+P) เพื่อพิมพ์', 'info'); } setTimeout(done, 1500); }, 250);
     return m;
@@ -311,9 +311,39 @@ function ensureDocFont(){
   var p = (document.fonts && document.fonts.load) ? Promise.all(['400', '600', '700', 'italic 400'].map(function(w){ return document.fonts.load(w + ' 14px Sarabun', TXT); })).catch(function(){}) : Promise.resolve();
   return Promise.race([p, new Promise(function(r){ setTimeout(r, 6000); })]);
 }
+/* 1 ต.ค. 69 แก้บั๊ก: พิมพ์แล้วกดปุ่มอะไรไม่ได้
+ * สาเหตุ: หน้าต่าง "กำลังเตรียมเอกสาร…" (SweetAlert) / หน้าต่างเลือกตำแหน่ง (Bootstrap) กำลังปิดอยู่ตอนเริ่มพิมพ์
+ * ระหว่างพิมพ์ระบบซ่อนทุกอย่างยกเว้นเอกสาร → อะนิเมชันปิดไม่จบ → ชั้นโปร่งใสค้างทับหน้าจอ
+ * แก้: รอให้หน้าต่างปิดสนิทก่อนพิมพ์ + เก็บกวาดชั้นที่ค้างหลังพิมพ์ */
+function uiCleanup(){
+  try {
+    if (window.Swal && !Swal.isVisible()) {
+      $$('.swal2-container').forEach(function(x){ x.remove(); });
+      [document.body, document.documentElement].forEach(function(el){ el.classList.remove('swal2-shown', 'swal2-height-auto', 'swal2-no-backdrop', 'swal2-toast-shown'); });
+      document.body.style.paddingRight = '';
+    }
+    if (!document.querySelector('.modal.show')) {
+      $$('.modal-backdrop').forEach(function(x){ x.remove(); });
+      $$('.modal').forEach(function(m){ m.style.display = 'none'; m.setAttribute('aria-hidden', 'true'); m.classList.remove('show'); });
+      document.body.classList.remove('modal-open'); document.body.style.overflow = ''; document.body.style.paddingRight = '';
+    }
+  } catch (e) { }
+}
+function uiIdle(){
+  try { if (window.Swal && Swal.isVisible() && Swal.isLoading()) Swal.close(); } catch (e) { }   // หน้าต่าง "กำลังเตรียม…"
+  try { if (window.MDL && document.querySelector('.modal.show')) MDL.hide(); } catch (e) { }
+  try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) { }
+  return new Promise(function(res){
+    var t0 = Date.now();
+    (function chk(){
+      var busy = (window.Swal && Swal.isVisible() && Swal.isLoading()) || document.querySelector('.swal2-backdrop-hide, .modal.show, .modal-backdrop');
+      if (!busy || Date.now() - t0 > 1500) { uiCleanup(); res(); } else setTimeout(chk, 40);
+    })();
+  });
+}
 /** o: {orient:'landscape'|'portrait', pages:[html], title} */
 function printDoc(o){
-  return ensureDocFont().then(function(){
+  return Promise.all([ensureDocFont(), uiIdle()]).then(function(){
     var root = $('printRoot');
     root.className = 'docs ' + o.orient + ' measuring';
     $('printPage').textContent = '@page{size:A4 ' + o.orient + ';margin:8mm}';
@@ -333,7 +363,7 @@ function printDoc(o){
     root.classList.remove('measuring');
     var t0 = document.title; if (o.title) document.title = o.title;   // ชื่อไฟล์ตั้งต้นเมื่อเลือก "บันทึกเป็น PDF"
     document.body.classList.add('printing');
-    var done = function(){ document.body.classList.remove('printing'); document.title = t0; window.removeEventListener('afterprint', done); };
+    var done = function(){ document.body.classList.remove('printing'); document.title = t0; window.removeEventListener('afterprint', done); setTimeout(uiCleanup, 50); };
     window.addEventListener('afterprint', done);
     setTimeout(function(){ try { window.print(); } catch (e) { alertBox('เปิดหน้าต่างพิมพ์ไม่ได้', 'กรุณากด Ctrl+P (หรือ ⌘+P) เพื่อพิมพ์', 'info'); } setTimeout(done, 1500); }, 150);
   });
@@ -443,7 +473,8 @@ function docRosterHtml(r, p, i, n){
   var nD = r.dates.length, wNo = 28, wName = 168, wHr = 104, wDay = 23, wTot = 34;
   var tw = wNo + wName + wHr + wDay * nD + wTot;
   var bg = function(x){ return x.bg ? ' style="background:' + x.bg + '"' : ''; };
-  var rowH = Math.max(20, Math.min(30, Math.floor((730 * Math.max(1, tw / 1062) - 250) / Math.max(1, p.rows.length + 3))));
+  var hasNote = p.rows.some(function(x){ return x.notes && x.notes.some(String); });
+  var rowH = Math.max(hasNote ? 30 : 20, Math.min(hasNote ? 38 : 30, Math.floor((730 * Math.max(1, tw / 1062) - 250) / Math.max(1, p.rows.length + 3))));
   var h = '<div class="dt drs" style="width:' + tw + 'px"><div class="dt-h1">ตารางเวรปฏิบัติงาน ' + esc(p.clinic) + '</div>' +
     '<div class="dt-h2">ตำแหน่ง ' + esc(p.name) + '   ประจำเดือน ' + esc(r.month) + '</div><div class="dt-h3">' + esc(r.org) + '</div>' +
     (r.demo ? '<div class="dt-mark">ข้อมูลทดลอง</div>' : p.draft ? '<div class="dt-mark">ฉบับร่าง – ตารางเวรยังไม่ได้รับอนุมัติครบ' + (p.pending ? ' (เครื่องหมาย * = รออนุมัติ ' + p.pending + ' เวร)' : '') + '</div>' : '<div class="dt-gap"></div>') +
@@ -452,12 +483,12 @@ function docRosterHtml(r, p, i, n){
     r.dates.map(function(x){ return '<th class="dw"' + bg(x) + '>' + esc(x.dow) + '</th>'; }).join('') + '</tr></thead><tbody>';
   p.rows.forEach(function(x, j){
     h += '<tr style="height:' + rowH + 'px"><td class="c">' + (j + 1) + '</td><td class="nm">' + esc(x.name) + '</td><td class="ps">' + esc(x.hr) + '</td>' +
-      x.days.map(function(v, k){ var cl = r.dates[k].closed; return '<td class="d' + (cl ? ' cl' : '') + '"' + bg(r.dates[k]) + '>' + esc(v) + '</td>'; }).join('') + '<td class="t">' + x.n + '</td></tr>';
+      x.days.map(function(v, k){ var cl = r.dates[k].closed, nt = x.notes ? x.notes[k] : ''; return '<td class="d' + (cl ? ' cl' : '') + '"' + bg(r.dates[k]) + '>' + esc(v) + (nt ? '<span class="drs-nt">' + esc(nt) + '</span>' : '') + '</td>'; }).join('') + '<td class="t">' + x.n + '</td></tr>';
   });
   var tot = p.rows.reduce(function(a, x){ return a + x.n; }, 0);
   h += '<tr class="sum"><td colspan="3" class="c">ลงเวรแล้ว (คน)</td>' + p.count.map(function(v, k){ var q = p.quota[k], over = q > 0 && v > q, lack = q > 0 && v < q; return '<td class="c' + (over ? ' over' : lack ? ' lack' : '') + '">' + (v || (r.dates[k].closed ? '' : '0')) + '</td>'; }).join('') + '<td class="t">' + tot + '</td></tr>' +
     '<tr class="sum q"><td colspan="3" class="c">กรอบต่อวัน (คน)</td>' + p.quota.map(function(q, k){ return '<td class="c">' + (r.dates[k].closed ? '' : q || '-') + '</td>'; }).join('') + '<td></td></tr></tbody></table>' +
-    '<div class="dt-leg">ตัวย่อเวร: ' + esc(r.labels) + ' · * = รออนุมัติ · ช่องสีตามประเภทวัน (เสาร์-อาทิตย์ / วันหยุด) · ตัวเลขสีแดง = เกินกรอบ ตัวเลขเอียง = ยังไม่ครบกรอบ</div>' +
+    '<div class="dt-leg">ตัวย่อเวร: ' + esc(r.labels) + (p.noteList && p.noteList.length ? ' · <b>หมายเหตุเวร</b> (ตัวเล็กใต้ตัวย่อ ตามที่ลงไว้): ' + esc(p.noteList.join(', ')) : '') + ' · * = รออนุมัติ · ช่องสีตามประเภทวัน (เสาร์-อาทิตย์ / วันหยุด) · ตัวเลขสีแดง = เกินกรอบ ตัวเลขเอียง = ยังไม่ครบกรอบ</div>' +
     '<div class="drs-note"><b>หมายเหตุ</b> ตารางนี้เป็นตารางเวรตามที่ลงไว้ในระบบ ณ วันที่พิมพ์ ใช้เพื่อแจ้งให้ทราบเท่านั้น ไม่ใช่เอกสารบันทึกเวลาปฏิบัติงานหรือเอกสารประกอบการเบิกจ่าย · หากมีการแลกเวร ขอเปลี่ยนแปลง หรือยกเลิกเวร กรุณาติดต่อเจ้าหน้าที่ประสานงานคลินิก</div>' +
     '<div class="dt-foot"><i>' + esc(r.foot) + '</i><span>หน้า ' + i + ' / ' + n + '</span></div></div>';
   return h;

@@ -300,7 +300,7 @@ function posModal(id){
     f('groupName', 'กลุ่มตำแหน่ง (ใช้กำหนดสิทธิ์)') + f('sortOrder', 'ลำดับ', 'number') + f('shiftMinutes', 'ความยาว 1 เวร (นาที)', 'number') + f('defaultQuota', 'กรอบเวรตั้งต้น/ช่วง', 'number') +
     '<div class="col-12"><div class="starts-box"><div class="d-flex flex-wrap align-items-center gap-2 mb-1"><b><i class="bi bi-clock"></i> เวลาเริ่มเวรมาตรฐาน</b><span class="small-muted">ใส่ได้หลายเวลาต่อช่วงเวร (พิมพ์แล้วกด Enter) เวลาที่อยู่ในรายการจะไม่ขึ้นเตือน "เวลาเริ่มไม่ตรงช่วงมาตรฐาน"</span></div>' +
       [['morningStart', 'ช1'], ['afternoonStart', 'ช2'], ['eveningStart', 'บ1']].map(function(x){ return '<div class="starts-row"><span class="tag brand" title="' + esc(slotL(x[1]).name) + '">' + esc(slotL(x[1]).s) + '</span><span class="small fw-semibold st-name">' + esc(slotL(x[1]).name) + '</span><div class="tchips" data-st="' + x[0] + '">' + String(p[x[0]] || '').split(',').filter(String).map(function(t){ return tchip(t); }).join('') + '</div><input class="form-control form-control-sm" style="width:100px" placeholder="+ เช่น 16:30" data-sti="' + x[0] + '" inputmode="numeric" aria-label="เพิ่มเวลาเริ่ม"><div class="sugg small-muted w-100" data-sug="' + x[1] + '"></div></div>'; }).join('') +
-      '<div class="small-muted mt-1">' + (id ? '<span id="pmSugInfo"><span class="spinner-border spinner-border-sm"></span> กำลังดูเวลาเริ่มที่เกิดขึ้นจริง 3 เดือนล่าสุด…</span>' : '') + ' ช่วง ' + esc(slotL('ช2').s) + ': ถ้าเริ่มช้ากว่าเวลาจบ ' + esc(slotL('ช1').s) + ' ถือเป็นเวลาพัก</div></div></div>' +
+      '<div class="small-muted mt-1">' + '' + ' ช่วง ' + esc(slotL('ช2').s) + ': ถ้าเริ่มช้ากว่าเวลาจบ ' + esc(slotL('ช1').s) + ' ถือเป็นเวลาพัก</div></div></div>' +
       f('quotaGroup', 'กลุ่มกรอบร่วม (ถ้ามี)') +
     '<div class="col-12"><label class="form-label" for="pm_importAliases">ชื่อที่ใช้นำเข้า (ชื่อชีทในไฟล์ตารางเดิม คั่นด้วย ,)</label><input class="form-control" id="pm_importAliases" value="' + esc(p.importAliases) + '"></div>' +
     '<div class="col-12"><label class="form-label" for="pm_refPositionId">ตำแหน่งอ้างอิง (ตรวจว่ามีผู้ปฏิบัติงานตำแหน่งนี้ในวันเดียวกัน เช่น แพทย์แผนไทย)</label><select class="form-select" id="pm_refPositionId" data-search><option value="">— ไม่ตรวจ —</option>' +
@@ -324,7 +324,7 @@ function tchip(t){ return '<span class="tchip" data-t="' + esc(t) + '">' + esc(t
 function addTchip(k, t){ t = normT(t); if (!t) return false; var box = $$('[data-st="' + k + '"]')[0]; if ($$('.tchip', box).some(function(c){ return c.dataset.t === t; })) return true; box.insertAdjacentHTML('beforeend', tchip(t)); $$('.tchip', box).sort(function(a, b){ return a.dataset.t < b.dataset.t ? -1 : 1; }).forEach(function(c){ box.appendChild(c); }); return true; }
 function bindStarts(id){
   $$('[data-sti]').forEach(function(inp){ inp.onkeydown = function(e){ if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); if (addTchip(inp.dataset.sti, inp.value)) inp.value = ''; else inp.classList.add('is-invalid'); } else inp.classList.remove('is-invalid'); }; inp.onblur = function(){ if (inp.value && addTchip(inp.dataset.sti, inp.value)) inp.value = ''; }; });
-  if (!id) return;
+  return;   // 1 ต.ค. 69 เลิกดึง "เวลาเริ่มที่เกิดขึ้นจริง 3 เดือน" อัตโนมัติ (ระบบตั้งค่าเสร็จแล้ว ไม่ต้องโหลดเพิ่ม)
   api('suggestStarts', { positionId: id }, { quiet: true }).then(function(r){
     var map = { 'ช1': 'morningStart', 'ช2': 'afternoonStart', 'บ1': 'eveningStart' }, any = false;
     Object.keys(r.starts).forEach(function(sl){
