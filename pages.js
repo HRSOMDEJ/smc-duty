@@ -274,8 +274,8 @@ function renderGrid(host, g, reload){
 function gridAdd(pid){
   var g = S._grid;
   var have = {}; GRID.cfg.rows.forEach(function(r){ if (r.pid === pid) have[r.empCode] = 1; });
-  var list = (g.employees || []).filter(function(e){ return !have[e.empCode] && (!e.allowed || !e.allowed.length || e.allowed.indexOf(pid) >= 0); });
-  modal('เพิ่มบุคลากรในตาราง · ' + posName(pid), '<label class="form-label" for="gaEmp">บุคลากร</label><select class="form-select" id="gaEmp" data-search><option value="">— เลือกบุคลากร —</option>' + list.map(function(e){ return '<option value="' + e.empCode + '" data-sub="' + esc(e.empCode + ' · ' + (e.hrPosition || '')) + '">' + esc(e.name) + '</option>'; }).join('') + '</select><div class="small-muted mt-2">เพิ่มแถวแล้วพิมพ์ตัวย่อเวรในช่องวันที่ แล้วกด "บันทึกตาราง"</div>',
+  var list = g.employees || [];
+  modal('เพิ่มบุคลากรในตาราง · ' + posName(pid), '<label class="form-label" for="gaEmp">บุคลากร</label><select class="form-select" id="gaEmp" data-search><option value="">— เลือกบุคลากร —</option>' + empOptions(list, pid, { skip: have, sub: function(e){ return e.empCode + ' · ' + (e.hrPosition || ''); } }) + '</select><div class="small-muted mt-2">เพิ่มแถวแล้วพิมพ์ตัวย่อเวรในช่องวันที่ แล้วกด "บันทึกตาราง"</div>',
     [{ text: 'ยกเลิก', cls: 'btn-ghost' }, { text: 'เพิ่มแถว', onClick: function(){
       var code = $('gaEmp').value; if (!code) { notify('กรุณาเลือกบุคลากร', 'info'); return false; }
       var e = list.filter(function(x){ return x.empCode === code; })[0];
@@ -316,7 +316,7 @@ function renderBoard(b){
     (b.canApprove && b.pending ? '<button class="btn btn-sm btn-brand ms-auto" onclick="approveSched(this)"><i class="bi bi-check2-all"></i> อนุมัติตารางเวร (' + b.pending + ')</button>' : '') + '</div>' + legendHtml(b.position);
   if (b.manage) {
     h += '<div class="card mb-3"><div class="card-b d-flex flex-wrap gap-2 align-items-end"><div style="min-width:300px"><label class="form-label" for="bkFor">ลงเวรแทนเจ้าหน้าที่ (ไม่เลือก = ลงเวรให้ตนเอง)</label><select class="form-select" data-search id="bkFor"><option value="">— ลงเวรให้ตนเอง —</option>' +
-      b.employees.map(function(e){ return '<option value="' + e.empCode + '" data-sub="' + esc(e.empCode + ' · ' + (e.hrPosition || '')) + '">' + esc(e.name) + ' (' + e.empCode + ')</option>'; }).join('') + '</select></div>' +
+      empOptions(b.employees, b.position.id, { sub: function(e){ return e.empCode + ' · ' + (e.hrPosition || ''); }, text: function(e){ return e.name + ' (' + e.empCode + ')'; } }) + '</select></div>' +
       '<div><label class="form-label" for="bkNote">หมายเหตุหน้าที่</label><input class="form-control" id="bkNote" placeholder="เช่น V/S, En" style="width:160px"></div></div></div>';
   } else {
     h += '<div class="mb-2" style="max-width:240px"><label class="form-label" for="bkNote">หมายเหตุหน้าที่ (ถ้ามี)</label><input class="form-control" id="bkNote" placeholder="เช่น V/S"></div>';
@@ -711,7 +711,7 @@ function rowHtml(r, unitCol, showDate){
     who = (showDate ? '<div class="small-muted">' + thDate(r.date) + '</div>' : '') +
       (S._en.multi ? '<select class="form-select form-select-sm mb-1" data-k="' + k + '" data-f="pid">' + eds.map(function(pid){ return '<option value="' + pid + '"' + (pid === r.pid ? ' selected' : '') + '>' + esc(enPos(pid).name) + '</option>'; }).join('') + '</select>' : '') +
       '<select class="form-select form-select-sm" data-search data-k="' + k + '" data-f="emp"><option value="">— เลือกบุคลากร —</option>' +
-      S._en.employees.filter(function(e){ return !e.allowed.length || e.allowed.indexOf(r.pid) >= 0; }).map(function(e){ return '<option value="' + e.empCode + '" data-sub="' + e.empCode + '"' + (e.empCode === r.empCode ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('') + '</select>';
+      empOptions(S._en.employees, r.pid, { cur: r.empCode }) + '</select>';
   }
   var menu = '';
   if (r.rec) {
@@ -903,10 +903,10 @@ function unschedRow(k){
 /** เปลี่ยนบุคลากรของรายการที่บันทึกแล้ว (เวลาเดิม) → ระบบแก้ตารางเวรให้ */
 function swapEmp(k){
   var r = S.enRows[k]; if (!r || !r.rec) return;
-  var list = S._en.employees.filter(function(e){ return (!e.allowed.length || e.allowed.indexOf(r.pid) >= 0) && e.empCode !== r.empCode; });
+  var list = S._en.employees;
   modal('เปลี่ยนบุคลากร', '<div class="mb-2 small-muted">' + esc(posName(r.pid)) + ' · ' + thDateFull(r.date) + ' · ใบที่ ' + esc(r.sheetNo) + ' · ' + esc(r.rec.timeIn + '–' + r.rec.timeOut) + '</div>' +
     '<div class="mb-2">จาก <b>' + esc(r.name) + '</b> (' + esc(r.empCode) + ')</div><label class="form-label" for="swEmp">เปลี่ยนเป็น</label><select class="form-select" id="swEmp" data-search><option value="">— เลือกบุคลากร —</option>' +
-    list.map(function(e){ return '<option value="' + e.empCode + '" data-sub="' + e.empCode + '">' + esc(e.name) + '</option>'; }).join('') + '</select>' +
+    empOptions(list, r.pid, { except: r.empCode }) + '</select>' +
     (S._en.autoSchedule ? '<div class="small-muted mt-2"><i class="bi bi-magic"></i> ระบบจะนำคนเดิมออกจากตารางเวรวันนั้น และลงเวรให้คนใหม่อัตโนมัติ</div>' : ''),
     [{ text: 'ยกเลิก', cls: 'btn-ghost' }, { text: 'บันทึกการเปลี่ยน', onClick: function(b){
       var code = $('swEmp').value; if (!code) { notify('กรุณาเลือกบุคลากร', 'info'); return false; }
@@ -1026,7 +1026,7 @@ function sheetRowHtml(r, x, k0){
   var k = r.key, cls = (r.inactive ? 'inactive ' : '') + (r.dirty ? 'row-dirty ' : '') + (r.err ? 'row-err ' : '') + (r.sel ? 'row-sel ' : '') + (r.saving ? 'row-saving ' : '') + dk(x.color);
   var who = '<div class="who"><b>' + esc(r.name) + '</b><small>' + (r.slot ? 'ตาราง <span class="tag">' + esc(lbl(r.slot)) + '</span>' : '<span class="text-warning">นอกตาราง</span>') + (r.note ? ' · ' + esc(r.note) : '') + '</small></div>';
   if (r.isNewRow) who = '<select class="form-select form-select-sm" data-search data-k="' + k + '" data-f="emp"><option value="">— เลือกบุคลากร —</option>' +
-    S._en.employees.filter(function(e){ return !e.allowed.length || e.allowed.indexOf(r.pid) >= 0; }).map(function(e){ return '<option value="' + e.empCode + '" data-sub="' + e.empCode + '"' + (e.empCode === r.empCode ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('') + '</select>';
+    empOptions(S._en.employees, r.pid, { cur: r.empCode }) + '</select>';
   var menu = '';
   if (r.rec) { var need = r.rec.scanStatus === S.boot.scan.NONE || r.rec.scanStatus === S.boot.scan.FORGOT || r.rec.attachIds.length; menu = attachCell(r.rec, ed && need) + (ed ? ' <button class="btn btn-icon btn-sm btn-ghost" title="เปลี่ยนบุคลากร" onclick="swapEmp(\'' + k + '\')"><i class="bi bi-arrow-left-right"></i></button> <button class="btn btn-icon btn-sm btn-ghost" title="ลบรายชื่อออกจากใบลงชื่อ" onclick="delRec(\'' + r.id + '\')"><i class="bi bi-trash3"></i></button>' : ''); }
   else if (r.isNewRow) menu = '<button class="btn btn-icon btn-sm btn-ghost" title="ลบแถว" onclick="delem(\'' + k + '\')"><i class="bi bi-x-lg"></i></button>';

@@ -20,16 +20,17 @@ function makeCombo(sel){
   var pop = document.createElement('div'); pop.className = 'combo-pop';
   pop.innerHTML = '<div class="combo-search"><i class="bi bi-search"></i><input class="form-control form-control-sm combo-q" placeholder="พิมพ์เพื่อค้นหา…" aria-label="ค้นหา"></div><div class="combo-list" role="listbox"></div>';
   wrap.appendChild(pop);
-  var q = pop.querySelector('.combo-q'), list = pop.querySelector('.combo-list'), items = [], act = -1;
+  var q = pop.querySelector('.combo-q'), list = pop.querySelector('.combo-list'), items = [], act = -1, showMore = false;
   var api2 = {
     wrap: wrap, pop: pop,
     label: function(){ var o = sel.options[sel.selectedIndex]; btn.innerHTML = '<span class="text-truncate">' + esc(o ? o.text : '—') + '</span>'; btn.disabled = sel.disabled; },
     open: function(){
       if (sel.disabled) return;
       if (_comboOpen && _comboOpen !== api2) _comboOpen.close();
-      _comboOpen = api2; wrap.classList.add('open'); q.value = ''; render();
+      _comboOpen = api2; wrap.classList.add('open'); q.value = ''; showMore = false; render();
       // ย้ายรายการตัวเลือกไปไว้ชั้นบนสุดของหน้า (ไม่ถูกส่วนอื่นของหน้าทับหรือตัด) แล้ววางตำแหน่งใต้/เหนือช่องเลือก
-      document.body.appendChild(pop); pop.classList.add('show');
+      // 30 ก.ย. 69: ถ้าอยู่ในหน้าต่าง (modal) ให้วางไว้ในหน้าต่างนั้น — ไม่งั้นหน้าต่างดึงโฟกัสกลับ พิมพ์ค้นหาไม่ได้
+      (btn.closest('.modal') || document.body).appendChild(pop); pop.classList.add('show');
       pop.querySelector('.combo-search').style.display = sel.options.length > 7 ? '' : 'none';   // ตัวเลือกน้อย ไม่ต้องมีช่องค้นหา
       api2.place();
       var fEl = sel.options.length > 7 ? q : list; if (fEl === list) list.tabIndex = -1;
@@ -48,12 +49,19 @@ function makeCombo(sel){
       pop.style.left = Math.max(8, Math.min(r.left, vw - Math.min(w, vw - 16) - 8)) + 'px';
       if (up) { pop.style.top = 'auto'; pop.style.bottom = (vh - r.top + 4) + 'px'; } else { pop.style.bottom = 'auto'; pop.style.top = (r.bottom + 4) + 'px'; }
     },
-    close: function(){ wrap.classList.remove('open'); pop.classList.remove('show'); if (pop.parentNode === document.body) wrap.appendChild(pop); if (_comboOpen === api2) _comboOpen = null; }
+    close: function(){ wrap.classList.remove('open'); pop.classList.remove('show'); if (pop.parentNode !== wrap) wrap.appendChild(pop); if (_comboOpen === api2) _comboOpen = null; }
   };
   function render(){
     var s = q.value.trim().toLowerCase();
-    items = [].slice.call(sel.options).filter(function(o){ return !s || (o.text + ' ' + (o.dataset.sub || '') + ' ' + o.value).toLowerCase().indexOf(s) >= 0; });
-    list.innerHTML = items.map(function(o, i){ return '<div class="combo-opt' + (o.selected ? ' sel' : '') + '" data-i="' + i + '" role="option">' + esc(o.text) + (o.dataset.sub ? '<small>' + esc(o.dataset.sub) + '</small>' : '') + '</div>'; }).join('') || '<div class="combo-empty">ไม่พบรายการที่ค้นหา</div>';
+    // 30 ก.ย. 69: ตัวเลือกที่มี data-more (เช่น บุคลากรที่ยังไม่ได้รับอนุมัติให้ขึ้นตำแหน่งนี้) ซ่อนไว้ จนกว่าจะกด "แสดงเพิ่ม"
+    var hidden = 0;
+    items = [].slice.call(sel.options).filter(function(o){
+      if (s && (o.text + ' ' + (o.dataset.sub || '') + ' ' + o.value).toLowerCase().indexOf(s) < 0) return false;
+      if (o.dataset.more && !showMore && !o.selected) { hidden++; return false; }
+      return true;
+    });
+    list.innerHTML = (items.map(function(o, i){ return '<div class="combo-opt' + (o.selected ? ' sel' : '') + (o.dataset.more ? ' more' : '') + '" data-i="' + i + '" role="option">' + esc(o.text) + (o.dataset.sub ? '<small>' + esc(o.dataset.sub) + '</small>' : '') + '</div>'; }).join('') || '<div class="combo-empty">' + (!s && hidden ? 'ไม่มีรายชื่อที่ได้รับอนุมัติตำแหน่งนี้เหลือให้เลือก' : 'ไม่พบรายการที่ค้นหา') + '</div>') +
+      (hidden ? '<div class="combo-more" data-more="1"><i class="bi bi-people"></i> แสดงบุคลากรที่ยังไม่ได้กำหนดตำแหน่ง (' + hidden + ' คน)</div>' : '');
     act = -1; items.forEach(function(o, i){ if (o.selected) act = i; }); hl();
   }
   function hl(){ $$('.combo-opt', list).forEach(function(el, i){ el.classList.toggle('act', i === act); }); var a = list.querySelector('.act'); if (a) { if (a.offsetTop < list.scrollTop) list.scrollTop = a.offsetTop; else if (a.offsetTop + a.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = a.offsetTop + a.offsetHeight - list.clientHeight; } }
@@ -73,7 +81,10 @@ function makeCombo(sel){
     else if (e.key === 'Escape') { api2.close(); btn.focus(); }
   };
   list.onkeydown = function(e){ q.onkeydown(e); };
-  list.onmousedown = function(e){ var el = e.target.closest('.combo-opt'); if (el) { e.preventDefault(); pick(+el.dataset.i); } };
+  list.onmousedown = function(e){
+    if (e.target.closest('.combo-more')) { e.preventDefault(); e.stopPropagation(); showMore = true; render(); try { q.focus({ preventScroll: true }); } catch (x) { } return; }
+    var el = e.target.closest('.combo-opt'); if (el) { e.preventDefault(); pick(+el.dataset.i); }
+  };
   sel.addEventListener('change', api2.label);
   sel._combo = api2;
   api2.label();
@@ -292,9 +303,11 @@ function printReport(o){
  * เซิร์ฟเวอร์ส่งเฉพาะข้อมูล → จัดหน้า A4 ที่นี่ → เปิดหน้าต่างพิมพ์ทันที (ต้องการไฟล์: เลือก "บันทึกเป็น PDF")
  * ไม่สร้าง Google Sheet ชั่วคราว ไม่เก็บไฟล์ใน Drive · ทุกหน้าย่อให้พอดีกระดาษ 1 หน้าอัตโนมัติ */
 function ensureDocFont(){
-  if (!$('fSarabun')) { var l = document.createElement('link'); l.id = 'fSarabun'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,400;0,700;1,400&display=swap'; document.head.appendChild(l); }
-  var p = (document.fonts && document.fonts.load) ? Promise.all([document.fonts.load('400 14px Sarabun'), document.fonts.load('700 14px Sarabun')]).catch(function(){}) : Promise.resolve();
-  return Promise.race([p, new Promise(function(r){ setTimeout(r, 2500); })]);
+  // 30 ก.ย. 69: ฟอนต์ Sarabun (แบบเดียวกับ TH Sarabun New ฟอนต์ราชการ) · โหลดครบ 400/600/700 ก่อนจัดหน้า รอได้ถึง 6 วิ
+  if (!$('fSarabun')) { var l = document.createElement('link'); l.id = 'fSarabun'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,400;0,600;0,700;1,400&display=swap'; document.head.appendChild(l); }
+  var TXT = 'ตารางเวรคลินิก 0123456789';
+  var p = (document.fonts && document.fonts.load) ? Promise.all(['400', '600', '700', 'italic 400'].map(function(w){ return document.fonts.load(w + ' 14px Sarabun', TXT); })).catch(function(){}) : Promise.resolve();
+  return Promise.race([p, new Promise(function(r){ setTimeout(r, 6000); })]);
 }
 /** o: {orient:'landscape'|'portrait', pages:[html], title} */
 function printDoc(o){
@@ -302,11 +315,18 @@ function printDoc(o){
     var root = $('printRoot');
     root.className = 'docs ' + o.orient + ' measuring';
     $('printPage').textContent = '@page{size:A4 ' + o.orient + ';margin:8mm}';
-    root.innerHTML = o.pages.map(function(h){ return '<section class="dp"><div class="dp-in">' + h + '</div></section>'; }).join('');
+    root.innerHTML = o.pages.map(function(h){ return '<section class="dp' + (o.flow ? ' flow' : '') + '"><div class="dp-in">' + h + '</div></section>'; }).join('');
     $$('.dp', root).forEach(function(sec){
-      var inn = sec.firstChild, W = sec.clientWidth, H = sec.clientHeight, w = inn.scrollWidth, h = inn.scrollHeight;
-      var k = Math.min(1, W / Math.max(1, w), H / Math.max(1, h));
-      inn.style.zoom = k.toFixed(4);   // ใช้ zoom (ไม่ใช้ transform) เพื่อให้เครื่องพิมพ์ตัดหน้าตามขนาดที่ย่อแล้วจริง
+      // ย่อให้พอดีหน้า (flow = พอดีความกว้าง ยาวต่อหลายหน้าได้) · ใช้ zoom (ไม่ใช้ transform) เพื่อให้เครื่องพิมพ์ตัดหน้าตามขนาดที่ย่อแล้วจริง
+      var inn = sec.firstChild, W = sec.clientWidth, H = o.flow ? 1e9 : sec.clientHeight, w = inn.scrollWidth, h = inn.scrollHeight;
+      var k = Math.min(1, W / Math.max(1, w), H / Math.max(1, h)) * 0.99;
+      for (var i = 0; i < 4; i++) {   // ตัวอักษรจัดบรรทัดใหม่หลังย่อ → วัดซ้ำจนพอดี
+        inn.style.zoom = k.toFixed(4);
+        var r = inn.getBoundingClientRect(), a = sec.getBoundingClientRect();
+        var over = Math.max(r.width / Math.max(1, a.width), o.flow ? 0 : r.height / Math.max(1, a.height));
+        if (over <= 1) break;
+        k = k / over * 0.99;
+      }
     });
     root.classList.remove('measuring');
     var t0 = document.title; if (o.title) document.title = o.title;   // ชื่อไฟล์ตั้งต้นเมื่อเลือก "บันทึกเป็น PDF"
@@ -318,41 +338,42 @@ function printDoc(o){
 }
 function docNum(v, d){ v = +v || 0; return d ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (v % 1 === 0 ? v.toLocaleString('en-US') : String(+v.toFixed(2))); }
 function docSignHtml(L, R){
-  var blk = function(x){ return x ? '<div class="ds-b"><div>' + esc(x.title) + '</div><div class="ds-gap"></div><div>' + '.'.repeat(68) + '</div><div>' + esc(x.name) + '</div><div>' + esc(x.role || '') + '</div></div>' : '<div class="ds-b"></div>'; };
+  var blk = function(x){ return x ? '<div class="ds-b"><div class="ds-tt">' + esc(x.title) + '</div><div class="ds-gap"></div><div class="ds-ln"></div><div>' + esc(x.name) + '</div><div>' + esc(x.role || '') + '</div></div>' : '<div class="ds-b"></div>'; };
   return '<div class="ds">' + blk(L) + blk(R) + '</div>';
 }
-/** ตารางเวร / ตาราง OT 1 หน้า (รูปแบบเดียวกับเอกสารแนบเบิกเดิม) */
+/** ตารางเวร / ตาราง OT 1 หน้า (รูปแบบเดียวกับเอกสารแนบเบิกเดิม)
+ *  30 ก.ย. 69: จัดขนาดให้พอดีกระดาษ A4 แนวนอนที่ขนาดจริง (ย่อน้อยที่สุด) · ตัวอักษรขนาดเอกสารราชการ · หัวตารางตัดบรรทัดเฉพาะจุดที่กำหนด */
 function docTableHtml(m, foot, page, pages){
   var nD = m.dates.length, n = m.rows.length, ot = m.type === 'ot';
-  var wNo = 28, wCode = 64, wName = m.withUnit ? 150 : 170, wPos = m.withUnit ? 110 : 128, wUnit = 90, wTot = 44, wAmt = m.pay ? 92 : 0, wDay = ot ? 28 : 26;
+  var wNo = 32, wCode = 56, wName = m.withUnit ? 150 : 176, wPos = m.withUnit ? 108 : 140, wUnit = 80, wTot = 36, wAmt = m.pay ? 72 : 0, wDay = 20;
   var totalW = wNo + wCode + wName + wPos + (m.withUnit ? wUnit : 0) + wTot + wAmt + wDay * nD;
-  var k = Math.max(1, totalW / 1065), big = n <= 25;
-  var rowH = Math.max(20, Math.min(48, Math.floor((726 * k - 332) / Math.max(1, n))));
-  var fName = n <= 15 ? 11 : big ? 10.5 : 9.5, fDay = big ? 13 : 11.5, fSum = big ? 12 : 11;
+  // ความสูงแถว: ให้ตารางกินพื้นที่หน้าพอดี แต่ไม่สูงเกิน (หน้า A4 แนวนอนสูง ~730px หักหัว/ลงนาม ~290px)
+  var avail = 730 * Math.max(1, totalW / 1062) - 290;
+  var rowH = Math.max(24, Math.min(32, Math.floor(avail / Math.max(1, n + 1))));
   var cols = '<col style="width:' + wNo + 'px"><col style="width:' + wCode + 'px"><col style="width:' + wName + 'px"><col style="width:' + wPos + 'px">' + (m.withUnit ? '<col style="width:' + wUnit + 'px">' : '') +
     m.dates.map(function(){ return '<col style="width:' + wDay + 'px">'; }).join('') + '<col style="width:' + wTot + 'px">' + (m.pay ? '<col style="width:' + wAmt + 'px">' : '');
   var bg = function(x){ return x.bg ? ' style="background:' + x.bg + '"' : ''; };
-  var h = '<div class="dt" style="width:' + totalW + 'px;font-size:' + fName + 'pt">' +
-    '<div class="dt-h1">' + esc(m.head) + '</div><div class="dt-h2">' + esc(m.posLine) + '</div><div class="dt-h2">' + esc(m.code) + '</div><div class="dt-mark">' + esc(m.mark) + '</div>' +
-    '<table class="dt-t"><colgroup>' + cols + '</colgroup><thead><tr><th rowspan="2">ลำดับ</th><th rowspan="2">รหัสเจ้าหน้าที่</th><th rowspan="2">ชื่อ-นามสกุล</th><th rowspan="2">ตำแหน่ง</th>' + (m.withUnit ? '<th rowspan="2">จุดปฏิบัติงาน</th>' : '') +
-    m.dates.map(function(x){ return '<th' + bg(x) + '>' + x.d + '</th>'; }).join('') + '<th rowspan="2">' + (ot ? 'รวม OT' : 'รวม') + '</th>' + (m.pay ? '<th rowspan="2">' + (ot ? 'รายได้ OT (บาท)' : 'รายได้ (บาท)') + '</th>' : '') + '</tr><tr>' +
-    m.dates.map(function(x){ return '<th' + bg(x) + '>' + esc(x.dow) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  var h = '<div class="dt' + (ot ? ' ot' : '') + '" style="width:' + totalW + 'px">' +
+    '<div class="dt-h1">' + esc(m.head) + '</div><div class="dt-h2">' + esc(m.posLine) + '</div><div class="dt-h3">' + esc(m.code) + '</div>' + (m.mark ? '<div class="dt-mark">' + esc(m.mark) + '</div>' : '<div class="dt-gap"></div>') +
+    '<table class="dt-t"><colgroup>' + cols + '</colgroup><thead><tr><th rowspan="2">ลำดับ</th><th rowspan="2">รหัส<br>เจ้าหน้าที่</th><th rowspan="2">ชื่อ - นามสกุล</th><th rowspan="2">ตำแหน่ง</th>' + (m.withUnit ? '<th rowspan="2">จุด<br>ปฏิบัติงาน</th>' : '') +
+    m.dates.map(function(x){ return '<th class="dn"' + bg(x) + '>' + x.d + '</th>'; }).join('') + '<th rowspan="2">' + (ot ? 'รวม<br>OT' : 'รวม') + '</th>' + (m.pay ? '<th rowspan="2">' + (ot ? 'รายได้ OT<br>(บาท)' : 'รายได้<br>(บาท)') + '</th>' : '') + '</tr><tr>' +
+    m.dates.map(function(x){ return '<th class="dw"' + bg(x) + '>' + esc(x.dow) + '</th>'; }).join('') + '</tr></thead><tbody>';
   m.rows.forEach(function(r){
-    h += '<tr style="height:' + rowH + 'px"><td class="c">' + r.no + '</td><td class="c">' + esc(r.code) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.pos) + '</td>' + (m.withUnit ? '<td>' + esc(r.unit) + '</td>' : '') +
-      r.days.map(function(v, i){ return '<td class="d" style="font-size:' + fDay + 'pt' + (m.dates[i].bg ? ';background:' + m.dates[i].bg : '') + '">' + (v === '' ? '' : esc(ot ? docNum(v) : v)) + '</td>'; }).join('') +
-      '<td class="t" style="font-size:' + fSum + 'pt">' + docNum(r.total) + '</td>' + (m.pay ? '<td class="a" style="font-size:' + fSum + 'pt">' + docNum(r.amt, 2) + '</td>' : '') + '</tr>';
+    h += '<tr style="height:' + rowH + 'px"><td class="c">' + r.no + '</td><td class="c">' + esc(r.code) + '</td><td class="nm">' + esc(r.name) + '</td><td class="ps">' + esc(r.pos) + '</td>' + (m.withUnit ? '<td class="ps">' + esc(r.unit) + '</td>' : '') +
+      r.days.map(function(v, i){ return '<td class="d"' + bg(m.dates[i]) + '>' + (v === '' ? '' : esc(ot ? docNum(v) : v)) + '</td>'; }).join('') +
+      '<td class="t">' + docNum(r.total) + '</td>' + (m.pay ? '<td class="a">' + docNum(r.amt, 2) + '</td>' : '') + '</tr>';
   });
-  h += '<tr class="sum" style="font-size:' + fSum + 'pt"><td colspan="' + (m.withUnit ? 5 : 4) + '" class="c">รวมประจำวัน</td>' + m.daily.map(function(v){ return '<td class="c">' + (v ? docNum(v) : '') + '</td>'; }).join('') +
-    '<td class="c">' + docNum(m.sumTotal) + '</td>' + (m.pay ? '<td class="a">' + docNum(m.sumAmt, 2) + '</td>' : '') + '</tr></tbody></table>' +
+  h += '<tr class="sum"><td colspan="' + (m.withUnit ? 5 : 4) + '" class="c">รวมประจำวัน</td>' + m.daily.map(function(v){ return '<td class="c">' + (v ? docNum(v) : '') + '</td>'; }).join('') +
+    '<td class="t">' + docNum(m.sumTotal) + '</td>' + (m.pay ? '<td class="a">' + docNum(m.sumAmt, 2) + '</td>' : '') + '</tr></tbody></table>' +
     '<div class="dt-leg">' + esc(m.legend) + '</div>' + docSignHtml(m.sign.left, m.sign.right) +
     '<div class="dt-foot"><i>' + esc(foot) + '</i><span>หน้า ' + page + ' / ' + pages + '</span></div></div>';
   return h;
 }
 /** ใบลงชื่อ FM-HRM-031 1 ใบ (A4 แนวตั้ง) */
 function docSignSheetHtml(pg, foot){
-  var W = [70, 80, 74, 216, 64, 64, 36, 122];
+  var W = [64, 78, 70, 226, 62, 62, 38, 126];
   var h = '<div class="dss"><div class="dss-t1">' + esc(pg.t1) + '</div><div class="dss-t2">' + esc(pg.t2) + '</div><div class="dss-t3">' + esc(pg.t3) + '</div>' +
-    '<table class="dss-t"><colgroup>' + W.map(function(w){ return '<col style="width:' + w + 'px">'; }).join('') + '</colgroup><thead><tr><th>วัน</th><th>วันที่</th><th>รหัสเจ้าหน้าที่</th><th>ชื่อ-นามสกุล</th><th>เวลาเข้างาน</th><th>เวลาออกงาน</th><th>OT</th><th>ลงลายมือชื่อ</th></tr></thead><tbody>';
+    '<table class="dss-t"><colgroup>' + W.map(function(w){ return '<col style="width:' + w + 'px">'; }).join('') + '</colgroup><thead><tr><th>วัน</th><th>วันที่</th><th>รหัส<br>เจ้าหน้าที่</th><th>ชื่อ - นามสกุล</th><th>เวลา<br>เข้างาน</th><th>เวลา<br>ออกงาน</th><th>OT</th><th>ลงลายมือชื่อ</th></tr></thead><tbody>';
   pg.rows.forEach(function(r){
     var b = r[5] ? ' style="background:' + r[5] + '"' : '';
     var dk = r[4] ? ' class="dk"' : b;

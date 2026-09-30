@@ -1,4 +1,4 @@
-var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-30.1', SMC_BUILD_TH = '30 ก.ย. 2569';
+var SMC_VERSION = '1.2569', SMC_BUILD = '2569-09-30.2', SMC_BUILD_TH = '30 ก.ย. 2569';
 /* BRAND (ชื่อระบบ โลโก้ สี ประกาศ): อ่านค่าที่แคชไว้ในเครื่องก่อน แล้วขอค่าล่าสุดจาก backend ตอนเริ่มแอป (ดู init ใน help.js) */
 var BRAND = (function(){ try { return JSON.parse(localStorage.getItem('smc_brand') || 'null'); } catch (e) { return null; } })();
 /* ================= แกนหลัก ================= */
@@ -614,6 +614,22 @@ function showApp(){
 }
 function warnBackendOld(){ if (S.backendOld && S.boot && S.boot.me && S.boot.me.roles.indexOf('ADMIN') >= 0) updateBar(S.backendOld, false); }
 
+/** 30 ก.ย. 69: ตัวเลือกบุคลากรสำหรับตำแหน่ง pid — แสดงก่อนเฉพาะคนที่ได้รับอนุมัติให้ขึ้นเวรตำแหน่งนี้ (หน้า "ข้อมูลบุคลากร")
+ *  คนที่ยังไม่กำหนดตำแหน่งซ่อนไว้ (กด "แสดงบุคลากรที่ยังไม่ได้กำหนดตำแหน่ง" ในช่องค้นหา) · ถ้าตำแหน่งนี้ยังไม่มีใครได้รับอนุมัติ แสดงทุกคนตามเดิม
+ *  opt: {cur: รหัสที่เลือกอยู่, sub: function(e) ข้อความบรรทัดล่าง, text: function(e) ชื่อที่แสดง, except: รหัสที่ไม่ต้องแสดง, skip: {รหัส:1} คนที่ไม่ต้องแสดง} */
+function empOptions(list, pid, opt){
+  opt = opt || {};
+  var ok = [], more = [], any = false, skip = opt.skip || {};
+  (list || []).forEach(function(e){
+    var a = e.allowed, mine = !!(a && a.length && a.indexOf(pid) >= 0);
+    if (mine) any = true;                                   // มีคนได้รับอนุมัติตำแหน่งนี้ (นับก่อนตัดคนที่อยู่ในตารางแล้ว)
+    if ((opt.except && e.empCode === opt.except) || skip[e.empCode]) return;
+    if (mine) ok.push(e); else if (!a || !a.length) more.push(e);
+  });
+  if (!any) { ok = ok.concat(more); more = []; }
+  var one = function(e, m){ var sub = opt.sub ? opt.sub(e) : e.empCode; return '<option value="' + e.empCode + '" data-sub="' + esc(sub) + '"' + (m ? ' data-more="1"' : '') + (e.empCode === opt.cur ? ' selected' : '') + '>' + esc(opt.text ? opt.text(e) : e.name) + '</option>'; };
+  return ok.map(function(e){ return one(e, false); }).join('') + more.map(function(e){ return one(e, true); }).join('');
+}
 function go(page){
   S.page = page; store('smc_page', page);
   var mm = MENU.filter(function(m){ return m.id === page; })[0];
@@ -623,6 +639,7 @@ function go(page){
   $('actionbar').classList.remove('show');
   window.scrollTo(0, 0);
   (PAGES[page] || PAGES.my)();
+  if (page === 'export' && window.ensureDocFont) setTimeout(function(){ try { ensureDocFont(); } catch (e) { } }, 300);   // 30 ก.ย. 69 โหลดฟอนต์เอกสารไว้ก่อนกดพิมพ์
 }
 
 /* ---------- ส่วนประกอบหน้า ---------- */
