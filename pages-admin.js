@@ -257,7 +257,7 @@ function drawUsers(){
   var list = S._us.filter(function(u){ return (all || q || u.roles.join(',') !== 'STAFF') && (!ro || u.roles.indexOf(ro) >= 0) && (!q || (u.empCode + ' ' + u.name + ' ' + u.division + ' ' + u.orgUnit + ' ' + u.hrPosition).toLowerCase().indexOf(q) >= 0); });
   $('usBody').innerHTML = '<div class="tbl"><table class="table table-hover"><thead><tr><th>ผู้ใช้งาน</th><th>หน่วยงาน</th><th>ฝ่าย</th><th>บทบาท</th><th>กลุ่มที่รับผิดชอบ</th><th>สถานะ</th><th>เข้าใช้งานล่าสุด</th></tr></thead><tbody>' +
     (list.slice(0, 500).map(function(u){ return '<tr class="cursor" onclick="userModal(\'' + u.empCode + '\')"><td><div class="d-flex gap-2 align-items-center"><div class="avatar">' + esc(initials(u.name)) + '</div><div class="who"><b>' + esc(u.name) + '</b><small>' + u.empCode + ' · ' + esc(u.hrPosition) + '</small></div></div></td><td class="small">' + esc(u.orgUnit) + '</td><td class="small">' + esc(divShort(u.division)) + '</td><td>' + u.roles.filter(function(r){ return r !== 'STAFF'; }).map(function(r){ return '<span class="tag brand me-1">' + esc(S.boot.roles[r]) + '</span>'; }).join('') + '</td>' +
-      '<td class="small-muted">' + (u.groups.indexOf('*') >= 0 ? 'ทุกกลุ่ม' : esc(u.groups.join(', '))) + '</td><td>' + (u.active ? '' : '<span class="pill p-bad">ปิดการใช้งาน</span> ') + (u.mustChange ? '<span class="pill p-warn">ยังไม่กำหนดรหัสผ่าน</span>' : '<span class="pill p-ok">ใช้งาน</span>') + '</td><td class="small-muted">' + esc(u.lastLogin) + '</td></tr>'; }).join('') || '<tr><td colspan="7">' + empty('search', 'ไม่พบผู้ใช้งานตามเงื่อนไข') + '</td></tr>') + '</tbody></table></div>';
+      '<td class="small-muted">' + (u.groups.indexOf('*') >= 0 ? 'ทุกกลุ่ม' : esc(u.groups.map(function(g){ return /^P\d+$/.test(g) ? posName(g) : g; }).join(', '))) + '</td><td>' + (u.active ? '' : '<span class="pill p-bad">ปิดการใช้งาน</span> ') + (u.mustChange ? '<span class="pill p-warn">ยังไม่กำหนดรหัสผ่าน</span>' : '<span class="pill p-ok">ใช้งาน</span>') + '</td><td class="small-muted">' + esc(u.lastLogin) + '</td></tr>'; }).join('') || '<tr><td colspan="7">' + empty('search', 'ไม่พบผู้ใช้งานตามเงื่อนไข') + '</td></tr>') + '</tbody></table></div>';
 }
 function userModal(code){
   if (!code) return alertBox('ยังไม่ได้ระบุรหัส', 'กรุณาระบุรหัสเจ้าหน้าที่', 'warning');
@@ -265,16 +265,35 @@ function userModal(code){
   var roles = [['ENTRY', 'บันทึกเวลาจากใบลงชื่อ ส่งตรวจสอบ พิมพ์ใบลงชื่อ ส่งออก HRMi (ตำแหน่งที่ดูแล)'], ['REVIEWER', 'อนุมัติตารางเวร ตรวจสอบผ่าน/ส่งกลับแก้ไข'], ['COORD', 'ปฏิทิน กรอบเวร ช่วงเวลา ส่งออก HRMi'], ['MANAGER', 'อนุมัติรายเดือน (ล็อกข้อมูล) ย้อนสถานะ'], ['ADMIN', 'ดำเนินการได้ทุกเมนู จัดการผู้ใช้งาน ตั้งค่าระบบ']];
   var body = '<div class="d-flex gap-2 align-items-center mb-3"><div class="avatar">' + esc(initials(u.name || code)) + '</div><div><b>' + esc(u.name || code) + '</b><div class="small-muted">' + code + '</div></div></div><div class="form-label">บทบาท</div>' +
     roles.map(function(r){ return '<div class="form-check mb-1"><input class="form-check-input" type="checkbox" data-ro="' + r[0] + '" id="ro' + r[0] + '"' + (u.roles.indexOf(r[0]) >= 0 ? ' checked' : '') + '><label class="form-check-label" for="ro' + r[0] + '"><b>' + esc(S.boot.roles[r[0]]) + '</b> <span class="small-muted">' + r[1] + '</span></label></div>'; }).join('') +
-    '<div class="form-label mt-3">กลุ่มตำแหน่งที่รับผิดชอบ (สำหรับผู้บันทึกข้อมูลและหัวหน้างาน)</div><div class="border rounded-3 p-2" style="max-height:200px;overflow:auto">' +
-    '<div class="form-check"><input class="form-check-input" type="checkbox" data-gr="*" id="grAll"' + (u.groups.indexOf('*') >= 0 ? ' checked' : '') + '><label class="form-check-label" for="grAll"><b>ทุกกลุ่ม</b></label></div>' +
-    S.boot.groups.map(function(g, i){ return '<div class="form-check"><input class="form-check-input" type="checkbox" data-gr="' + esc(g) + '" id="gr' + i + '"' + (u.groups.indexOf(g) >= 0 ? ' checked' : '') + '><label class="form-check-label" for="gr' + i + '">' + esc(g) + '</label></div>'; }).join('') + '</div>' +
+    // 2 ต.ค. 69 (ชุด 21) ขอบเขตที่ดูแล เลือกได้ทั้งกลุ่ม หรือเฉพาะบางตำแหน่ง · แยกจาก "ตำแหน่งที่ขึ้นเวรได้" (ตั้งที่หน้าข้อมูลบุคลากร)
+    '<div class="form-label mt-3">ตำแหน่งที่ดูแล (บันทึกเวลา / ตรวจสอบ / จัดตารางเวร)</div><div class="small-muted mb-1">ติ๊กชื่อกลุ่ม = ทั้งกลุ่ม · กดลูกศรเพื่อเลือกเฉพาะบางตำแหน่งในกลุ่ม (เช่น ให้เป็นผู้บันทึกหลายกลุ่ม แต่ไม่ดูแลตำแหน่งการเงิน)</div><div class="border rounded-3 p-2" style="max-height:280px;overflow:auto" id="usScope">' +
+    '<div class="form-check"><input class="form-check-input" type="checkbox" data-gr="*" id="grAll"' + (u.groups.indexOf('*') >= 0 ? ' checked' : '') + '><label class="form-check-label" for="grAll"><b>ทุกกลุ่ม ทุกตำแหน่ง</b></label></div>' +
+    S.boot.groups.map(function(g, i){
+      var ps = S.boot.positions.filter(function(p){ return p.groupName === g; }), whole = u.groups.indexOf(g) >= 0, some = ps.filter(function(p){ return u.groups.indexOf(p.id) >= 0; }).length;
+      return '<div class="us-g"><div class="d-flex align-items-center gap-1"><input class="form-check-input" type="checkbox" data-gr="' + esc(g) + '" id="gr' + i + '"' + (whole ? ' checked' : '') + '><label class="form-check-label flex-grow-1" for="gr' + i + '">' + esc(g) + ' <span class="small-muted">(' + ps.length + ')</span>' + (some && !whole ? ' <span class="pill p-info nodot">เลือกบางตำแหน่ง ' + some + '</span>' : '') + '</label>' +
+        (ps.length > 1 ? '<button type="button" class="btn btn-sm btn-link py-0 us-x" data-x="' + i + '" aria-label="เลือกรายตำแหน่ง"><i class="bi bi-chevron-' + (some && !whole ? 'up' : 'down') + '"></i></button>' : '') + '</div>' +
+        '<div class="us-ps ps-' + i + '"' + (some && !whole ? '' : ' hidden') + '>' + ps.map(function(p){ return '<div class="form-check ms-4"><input class="form-check-input" type="checkbox" data-gp="' + p.id + '" data-gi="' + i + '" id="gp' + p.id + '"' + (whole || u.groups.indexOf(p.id) >= 0 ? ' checked' : '') + '><label class="form-check-label small" for="gp' + p.id + '">' + esc(p.name) + '</label></div>'; }).join('') + '</div></div>';
+    }).join('') + '</div>' +
+    '<div class="small-muted mt-2"><i class="bi bi-calendar2-check"></i> ตำแหน่งที่ขึ้นเวรได้ (ลงเวร/เห็นตารางเวรของตำแหน่งนั้น): <b>' + esc((u.allowed || []).map(posName).join(', ') || 'ไม่จำกัด') + '</b> · แก้ที่เมนู ข้อมูลบุคลากร</div>' +
     '<div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" id="usActive"' + (u.active ? ' checked' : '') + '><label class="form-check-label" for="usActive">เปิดใช้งานบัญชี</label></div>';
   modal('กำหนดสิทธิ์ผู้ใช้งาน', body, [{ text: 'ยกเลิก', cls: 'btn-ghost' }, { text: 'บันทึกสิทธิ์', onClick: function(){
     var rs = ['STAFF'], gs = [];
     $$('[data-ro]').forEach(function(c){ if (c.checked) rs.push(c.dataset.ro); });
-    $$('[data-gr]').forEach(function(c){ if (c.checked) gs.push(c.dataset.gr); });
+    if ($('grAll').checked) gs.push('*');
+    else $$('[data-gr]').forEach(function(c){
+      if (c.dataset.gr === '*') return;
+      var gi = c.id.slice(2), items = $$('[data-gi="' + gi + '"]'), on = items.filter(function(x){ return x.checked; });
+      if (c.checked || (items.length && on.length === items.length)) gs.push(c.dataset.gr);       // ทั้งกลุ่ม
+      else on.forEach(function(x){ gs.push(x.dataset.gp); });                                      // เฉพาะบางตำแหน่ง
+    });
     api('saveUser', { empCode: code, roles: rs, groups: gs, active: $('usActive').checked }).then(function(l){ S._us = l; drawUsers(); notify('บันทึกสิทธิ์เรียบร้อย'); }).catch(function(){});
   } }]);
+  setTimeout(function(){
+    $$('.us-x').forEach(function(b){ b.onclick = function(){ var box = document.querySelector('.ps-' + b.dataset.x); box.hidden = !box.hidden; b.innerHTML = '<i class="bi bi-chevron-' + (box.hidden ? 'down' : 'up') + '"></i>'; }; });
+    $$('#usScope [data-gr]').forEach(function(c){ if (c.dataset.gr === '*') return; c.onchange = function(){ $$('[data-gi="' + c.id.slice(2) + '"]').forEach(function(x){ x.checked = c.checked; }); }; });
+    $$('#usScope [data-gp]').forEach(function(x){ x.onchange = function(){ var items = $$('[data-gi="' + x.dataset.gi + '"]'), n = items.filter(function(y){ return y.checked; }).length, g = $('gr' + x.dataset.gi); g.checked = n === items.length; g.indeterminate = n > 0 && n < items.length; }; });
+    $$('#usScope [data-gr]').forEach(function(c){ if (c.dataset.gr === '*') return; var items = $$('[data-gi="' + c.id.slice(2) + '"]'), n = items.filter(function(y){ return y.checked; }).length; c.indeterminate = !c.checked && n > 0; });
+  }, 40);
 }
 
 /* ================= ตำแหน่งและอัตราค่าตอบแทน ================= */
@@ -461,7 +480,7 @@ function drawSettings(){
       '<div class="mt-3 d-flex gap-2 align-items-center flex-wrap"><button class="btn btn-brand" onclick="importLegacy()"><i class="bi bi-upload"></i> เริ่มนำเข้า</button><span class="small-muted">ข้อมูลแต่ละเดือนจัดเก็บเป็นไฟล์ Archive (สถานะอนุมัติแล้ว) · ใช้เวลาประมาณ 2–5 นาที</span></div><div id="impLog" class="mt-3"></div></div></div></div>';
     h += '<div class="col-12"><div class="card"><div class="card-h"><h3><i class="bi bi-gear-wide-connected text-danger"></i> คำสั่งระบบ</h3></div><div class="card-b"><div class="d-flex flex-wrap gap-2 align-items-end mb-2">' + ymSelect('jbYm', S.boot.ym, 14, 1) + '</div><div class="d-flex flex-wrap gap-2">' +
       [['testApi', 'plug', 'ทดสอบการเชื่อมต่อ API'], ['syncEmployees', 'people', 'ปรับปรุงข้อมูลบุคลากร'], ['syncScans', 'fingerprint', 'ดึงข้อมูลสแกนเดือนที่เลือก'], ['recalc', 'calculator', 'คำนวณเดือนที่เลือกใหม่'], ['archive', 'archive', 'จัดเก็บเดือนที่เลือกเข้า Archive'],
-        ['allowedFromHistory', 'person-check', 'กำหนดตำแหน่งที่ขึ้นเวรได้จากประวัติ 12 เดือน'], ['seedV13', 'box-seam', 'อัปเกรดค่าตั้งต้นของระบบ'], ['archiveAudit', 'archive', 'ย้ายประวัติการใช้งานเก่าไปไดรฟ์'], ['installTriggers', 'alarm', 'ติดตั้งงานอัตโนมัติ'], ['normalizeUnits', 'magic', 'แปลงชื่อจุดปฏิบัติงานรังสี (เดือนที่เลือก)'], ['clearCache', 'lightning', 'ล้างแคช']].map(function(j){ return '<button class="btn btn-sm btn-ghost" onclick="job(\'' + j[0] + '\',this)"><i class="bi bi-' + j[1] + '"></i> ' + j[2] + '</button>'; }).join('') +
+        ['allowedFromHistory', 'person-check', 'กำหนดตำแหน่งที่ขึ้นเวรได้จากประวัติ 12 เดือน'], ['seedV13', 'box-seam', 'อัปเกรดค่าตั้งต้นของระบบ'], ['archiveAudit', 'archive', 'ย้ายประวัติการใช้งานเก่าไปไดรฟ์'], ['installTriggers', 'alarm', 'ติดตั้งงานอัตโนมัติ'], ['normalizeUnits', 'magic', 'แปลงชื่อจุดปฏิบัติงานรังสี (เดือนที่เลือก)'], ['clearCache', 'lightning', 'ล้างแคช'], ['dataHealth', 'heart-pulse', 'ตรวจสุขภาพข้อมูล (รหัสตำแหน่งที่หาย/สิทธิ์ผิดกลุ่ม)']].map(function(j){ return '<button class="btn btn-sm btn-ghost" onclick="job(\'' + j[0] + '\',this)"><i class="bi bi-' + j[1] + '"></i> ' + j[2] + '</button>'; }).join('') +
       '</div><pre id="jbOut" class="small mt-2 mb-0" style="white-space:pre-wrap"></pre></div></div></div>';
     h += '<div class="col-12"><div class="card"><div class="card-h"><h3><i class="bi bi-sliders text-danger"></i> ค่าระบบ</h3><button class="btn btn-sm btn-brand ms-auto" onclick="saveSet(this)">บันทึกค่าระบบ</button></div><div class="card-b row g-3">' +
       Object.keys(s).filter(function(k){ return k[0] !== '_' && s[k].editable && k.indexOf('signer') < 0; }).map(function(k){ return '<div class="col-md-6"><label class="form-label">' + esc(s[k].note || k) + ' <span class="text-secondary">(' + esc(k) + ')</span></label><input class="form-control" data-set="' + k + '" value="' + esc(s[k].value) + '"></div>'; }).join('') + '</div></div></div>';
@@ -482,6 +501,7 @@ function job(name, b){
   var ym = $('jbYm').value;
   var run = function(){ api('runJob', { job: name, ym: ym, untilYm: ym, months: 12 }, { btn: b }).then(function(r){ $('jbOut').textContent = JSON.stringify(r, null, 2); notify('ดำเนินการเรียบร้อย'); }).catch(function(e){ $('jbOut').textContent = e.message; }); };
   if (name === 'archive') confirmBox('จัดเก็บเข้า Archive', 'จัดเก็บเดือน ' + thYm(ym) + ' เข้า Archive (ต้องอนุมัติครบทุกตำแหน่งแล้ว)', 'ดำเนินการ').then(function(ok){ if (ok) run(); });
+  else if (name === 'dataHealth') healthDlg(b);
   else if (name === 'allowedFromHistory') confirmBox('กำหนดตำแหน่งจากประวัติ', 'ระบบจะกำหนด "ขึ้นเวรได้เฉพาะตำแหน่ง" ให้บุคลากรที่ยังไม่ได้กำหนด ตามตำแหน่งที่เคยขึ้นเวรใน 12 เดือนล่าสุด (ผู้ที่กำหนดไว้แล้วจะไม่เปลี่ยน)', 'ดำเนินการ').then(function(ok){ if (ok) run(); });
   else run();
 }
@@ -591,5 +611,50 @@ function loadAudit(b, first){
 function auArchive(b){
   confirmBox('ย้ายประวัติเก่าไปไดรฟ์', 'ย้ายประวัติที่เก่ากว่า 2 เดือนไปเก็บเป็นไฟล์ Google Sheet รายเดือน ในโฟลเดอร์ SMC_AuditLog (ไม่ลบทิ้ง)', 'ย้ายเลย').then(function(ok){
     if (ok) api('archiveAuditNow', {}, { btn: b, block: 'กำลังย้ายประวัติการใช้งาน…' }).then(function(r){ alertBox('ย้ายประวัติเรียบร้อย', r.moved ? 'ย้าย ' + fmt(r.moved) + ' รายการ (' + (r.files || []).join(', ') + ') · เหลือในชีทหลัก ' + fmt(r.remain) + ' รายการ' : (r.reason || 'ไม่มีประวัติเก่าที่ต้องย้าย'), 'success'); loadAudit(null, true); }).catch(function(){});
+  });
+}
+
+/* ================= 2 ต.ค. 69 (ชุด 21) ตรวจสุขภาพข้อมูล ================= *
+ * พบจริง: เปลี่ยนรหัสตำแหน่งในชีทโดยตรง (P37 → P36) ตารางเวร/สิทธิ์ขึ้นเวรยังอ้างรหัสเดิม → ชื่อและตารางหายจากหน้าจอ
+ * หน้านี้แสดงรหัสที่ไม่มีแล้วแต่ยังมีข้อมูลค้าง และย้ายข้อมูลไปตำแหน่งที่ถูกต้องได้ในครั้งเดียว (ต้องยืนยันรหัสผ่าน) */
+function healthDlg(b){
+  api('runJob', { job: 'dataHealth' }, { btn: b, block: 'กำลังตรวจข้อมูลทั้งระบบ…' }).then(function(h){ S._health = h; healthShow(); }).catch(function(){});
+}
+function healthShow(){
+  var h = S._health, opts = h.positions.map(function(p){ return '<option value="' + p.id + '" data-sub="' + esc(p.groupName) + '">' + esc(p.id + ' · ' + p.name) + '</option>'; }).join('');
+  var body = '<div class="small-muted mb-2">ตรวจเมื่อ ' + esc(h.checkedAt) + ' · ห้ามแก้รหัสตำแหน่งในชีทโดยตรง (ใช้เมนู ตำแหน่งและอัตรา)</div>';
+  body += '<h6 class="mt-2"><i class="bi bi-diagram-3"></i> รหัสตำแหน่งที่ไม่มีในระบบ แต่ยังมีข้อมูลอ้างถึง (' + h.orphans.length + ')</h6>';
+  if (!h.orphans.length) body += '<div class="text-success small mb-2"><i class="bi bi-check2-circle"></i> ไม่พบ</div>';
+  h.orphans.forEach(function(o){
+    var parts = [];
+    if (o.schedule) parts.push('ตารางเวร ' + o.scheduleActive + ' รายการ' + (o.scheduleMonths.length ? ' (' + o.scheduleMonths.map(thYm).join(', ') + ')' : ''));
+    if (o.records) parts.push('บันทึกเวลา ' + o.records + ' รายการ (' + o.recordMonths.map(thYm).join(', ') + ')');
+    if (o.employees.length) parts.push('สิทธิ์ขึ้นเวรของ ' + o.employees.length + ' คน: ' + o.employeeNames.join(', '));
+    if (o.users.length) parts.push('ขอบเขตผู้ใช้ ' + o.users.join(', '));
+    ['monthStatus:สถานะรายเดือน', 'quotas:กรอบเวรรายวัน', 'slotRules:ช่วงเวร', 'rates:อัตรา', 'signers:ผู้ลงนาม'].forEach(function(x){ var k = x.split(':'); if (o[k[0]]) parts.push(k[1] + ' ' + o[k[0]]); });
+    if (o.refBy.length) parts.push('เป็นตำแหน่งอ้างอิงของ ' + o.refBy.map(posName).join(', '));
+    body += '<div class="hl-row"><div><b class="text-danger">' + esc(o.id) + '</b> <span class="small">' + esc(parts.join(' · ')) + '</span></div>' +
+      '<div class="d-flex gap-2 align-items-center mt-1 flex-wrap"><span class="small">ย้ายข้อมูลทั้งหมดไปที่</span><select class="form-select form-select-sm" style="max-width:420px" data-search id="hlTo_' + esc(o.id) + '"><option value="">— เลือกตำแหน่งที่ถูกต้อง —</option>' + opts + '</select>' +
+      '<button type="button" class="btn btn-sm btn-brand" onclick="remapPos(\'' + esc(o.id) + '\', this)"><i class="bi bi-arrow-right-circle"></i> ย้ายข้อมูล</button></div></div>';
+  });
+  body += '<h6 class="mt-3"><i class="bi bi-people"></i> ผู้ใช้ที่ตั้งกลุ่ม/ตำแหน่งที่ไม่มีอยู่จริง (' + h.badGroups.length + ')</h6>';
+  body += h.badGroups.length ? '<div class="small">' + h.badGroups.map(function(u){ return '<div><a href="#" onclick="MDL.hide();go(\'users\');setTimeout(function(){ if (S._us) userModal(\'' + u.empCode + '\'); }, 900);return false">' + esc(u.empCode + ' ' + u.name) + '</a> · ' + esc(u.bad.join(', ')) + ' <span class="small-muted">(ไม่มีผล · ลบออกได้ที่หน้าผู้ใช้งาน)</span></div>'; }).join('') + '</div>' : '<div class="text-success small"><i class="bi bi-check2-circle"></i> ไม่พบ</div>';
+  modal('ตรวจสุขภาพข้อมูล', body, [{ text: 'ปิด', cls: 'btn-ghost' }], 'lg');
+}
+function remapPos(from, b){
+  var sel = $('hlTo_' + from), to = sel ? sel.value : '';
+  if (!to) return notify('กรุณาเลือกตำแหน่งปลายทาง', 'info');
+  MDL.hide();
+  setTimeout(function(){ remapAsk(from, to); }, 350);
+}
+function remapAsk(from, to){
+  passwordBox('ย้ายข้อมูล ' + from + ' → ' + to, 'ย้ายตารางเวร บันทึกเวลา สิทธิ์ขึ้นเวร และข้อมูลอื่นทั้งหมดของรหัส ' + from + '\nไปที่ ' + posName(to) + ' (' + to + ')\nเวรที่ซ้ำช่วงเดียวกันในตำแหน่งปลายทางจะถูกยกเลิกอัตโนมัติ', 'ย้ายข้อมูล', true).then(function(pw){
+    if (pw === null) return healthShow();
+    api('remapPosition', { from: from, to: to, password: pw }, { block: 'กำลังย้ายข้อมูล…' }).then(function(r){
+      var c = r.counts;
+      memoClear(); pcClear();
+      alertBox('ย้ายข้อมูลเรียบร้อย', from + ' → ' + r.toName + '\nตารางเวร ' + c.schedule + ' · บันทึกเวลา ' + c.records + ' · สิทธิ์ขึ้นเวร ' + c.employees + ' คน · สถานะรายเดือน ' + c.monthStatus + (c.clashes ? '\nยกเลิกเวรที่ซ้ำช่วงเวลา ' + c.clashes + ' รายการ' : '') + '\n\nระบบล้างแคชให้แล้ว ทุกเครื่องจะเห็นข้อมูลใหม่', 'success');
+      S._health = r.health;
+    }).catch(function(){});
   });
 }

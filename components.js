@@ -594,10 +594,35 @@ function parseCell(t){
   return { slots: u, note: (m[2] || '').trim() };
 }
 function cellText(slots, note){ return slots.map(function(k){ return slotL(k).s; }).join('') + (note ? ' ' + note : ''); }
+/* ===== 2 ต.ค. 69 (ชุด 21) ตัวเลือกใบเซ็นชื่อ "ทั้งหมด | ใบ 1 | ใบ 2…" (แบบระบบ ศ.สาขา) =====
+ * S.lnSel[ตำแหน่ง] = [เลขใบที่เลือก] (ว่าง = ทั้งหมด · เลือกได้หลายใบ) · ช่องเวรที่ไม่อยู่ในใบที่เลือกซ่อน · แถวคนที่ไม่มีเวรในใบนั้นซ่อน
+ * เลขใบ = เลขที่บันทึกไว้ในหน้าบันทึกเวลา ถ้ายังไม่บันทึก = ลำดับในใบลงชื่อที่พิมพ์ · ชี้ช่องเวรเห็นว่าอยู่ใบที่เท่าไร */
+function lnSelOf(pid){ S.lnSel = S.lnSel || {}; return S.lnSel[pid] || []; }
+function lnShow(pid, n){ var sel = lnSelOf(pid); return !sel.length || sel.indexOf(+n) >= 0; }
+function lnChips(pid, lines){
+  var sel = lnSelOf(pid); lines = Math.max(+lines || 0, sel.length ? sel[sel.length - 1] : 0);
+  if (!(lines > 1) && !sel.length) return '';
+  var h = '<span class="sg-lines" data-lp="' + esc(pid) + '"><span class="small-muted">ใบเซ็นชื่อ:</span> <button type="button" class="lchip' + (sel.length ? '' : ' on') + '" data-ln="0">ทั้งหมด</button>';
+  for (var i = 1; i <= lines; i++) h += '<button type="button" class="lchip' + (sel.indexOf(i) >= 0 ? ' on' : '') + '" data-ln="' + i + '">ใบ ' + i + '</button>';
+  return h + '</span>';
+}
+function lnTip(n){ return n ? ' · ใบเซ็นชื่อที่ ' + n : ''; }
+document.addEventListener('click', function(e){
+  var b = e.target && e.target.closest ? e.target.closest('.lchip') : null; if (!b) return;
+  var box = b.closest('[data-lp]'); if (!box) return;
+  var pid = box.dataset.lp, n = +b.dataset.ln, sel = lnSelOf(pid).slice();
+  if (!n) sel = []; else { var i = sel.indexOf(n); if (i >= 0) sel.splice(i, 1); else sel.push(n); sel.sort(function(a, c){ return a - c; }); }
+  S.lnSel[pid] = sel;
+  if (S._lnRedraw) S._lnRedraw(pid);
+});
 function SheetGrid(cfg){
   var G = { cfg: cfg, dirty: {} };
   var host = typeof cfg.host === 'string' ? $(cfg.host) : cfg.host;
   var dates = cfg.dates;
+  var lines = cfg.lines || {};
+  /** 2 ต.ค. 69 ช่องนี้แสดงไหม (เลือกใบเซ็นชื่อไว้ → เฉพาะเวรในใบที่เลือก) */
+  var vis = function(r, d){ return !lnSelOf(r.pid).length || (r.cells[d] && r.ln && lnShow(r.pid, r.ln[d])); };
+  var rowShown = function(r){ if (!lnSelOf(r.pid).length || r.isNew) return true; if (Object.keys(G.dirty).some(function(k){ return G.dirty[k].row === r; })) return true; return dates.some(function(x){ return vis(r, x.d); }); };
   G.render = function(){
     var anyEdit = cfg.rows.some(function(r){ return r.editable; }) || cfg.canAdd;
     var h = '<div class="sg-bar">' + (anyEdit ? '<span class="small-muted"><i class="bi bi-keyboard"></i> พิมพ์ตัวย่อในช่อง เช่น <b>' + esc(slotL('บ1').s) + '</b>, <b>' + esc(slotL('ช1').s + slotL('ช2').s) + '</b> หรือ <b>' + esc(slotL('บ1').s) + ' V/S</b> · ลบช่องว่าง = ยกเลิกเวร · วางจาก Excel ได้</span>' : '<span class="small-muted"><i class="bi bi-eye"></i> เปิดดูอย่างเดียว</span>') +
@@ -608,17 +633,23 @@ function SheetGrid(cfg){
     cfg.rows.forEach(function(r, i){ var g = cfg.groups ? r.pid : '_'; if (!byG[g]) { byG[g] = []; groupsOrder.push(g); } byG[g].push(i); });
     groupsOrder.forEach(function(g){
       var idx = byG[g], r0 = cfg.rows[idx[0]];
-      if (cfg.groups) h += '<tr class="sg-g"><td class="sg-code"></td><td class="sg-name"><b>' + esc(r0.groupName || posName(r0.pid)) + '</b></td><td class="sg-hp">' + (r0.status ? statusPill(r0.status) : '') + '</td><td colspan="' + (dates.length + 1) + '">' + (cfg.onAddRow && cfg.canAddPid && cfg.canAddPid(r0.pid) ? '<button class="btn btn-sm btn-link py-0" type="button" data-addp="' + r0.pid + '"><i class="bi bi-person-plus"></i> เพิ่มบุคลากร</button>' : '') + '</td></tr>';
+      var fl = lnSelOf(r0.pid).length ? ' <span class="pill p-info nodot">แสดงเฉพาะใบที่เลือก · เพิ่ม/แก้เวรได้เฉพาะช่องที่แสดง (กด "ทั้งหมด" เพื่อเพิ่มเวรใหม่)</span>' : '';
+      if (cfg.groups) h += '<tr class="sg-g"><td class="sg-code"></td><td class="sg-name"><b>' + esc(r0.groupName || posName(r0.pid)) + '</b></td><td class="sg-hp">' + (r0.status ? statusPill(r0.status) : '') + '</td><td colspan="' + (dates.length + 1) + '" class="sg-tlg">' + lnChips(r0.pid, lines[r0.pid]) + (cfg.onAddRow && cfg.canAddPid && cfg.canAddPid(r0.pid) ? '<button class="btn btn-sm btn-link py-0" type="button" data-addp="' + r0.pid + '"><i class="bi bi-person-plus"></i> เพิ่มบุคลากร</button>' : '') + fl + '</td></tr>';
+      else if (lnChips(r0.pid, lines[r0.pid])) h += '<tr class="sg-g"><td class="sg-code"></td><td colspan="' + (dates.length + 3) + '" class="sg-tlg">' + lnChips(r0.pid, lines[r0.pid]) + fl + '</td></tr>';
+      var shown = 0;
       idx.forEach(function(i){
         var r = cfg.rows[i];
+        if (!rowShown(r)) return;
+        shown++;
         h += '<tr data-row="' + i + '"><td class="sg-code tnum">' + esc(r.empCode) + '</td><td class="sg-name"><b>' + esc(r.name) + '</b></td><td class="sg-hp">' + esc(r.hrPos || '') + '</td>';
         dates.forEach(function(x){
-          var v = r.cells[x.d] || '', pend = r.pend && r.pend[x.d], st = r.st && r.st[x.d], rc = v ? recCls(st, r.status) : '';
-          h += '<td class="' + dk(x.color) + (pend ? ' sg-pend' : '') + (rc ? ' ' + rc : '') + '"' + (v ? ' title="' + esc(recTitle(st, r.status)) + '"' : '') + '>' + (r.editable ? '<input class="sgc" data-r="' + i + '" data-d="' + x.d + '" value="' + esc(v) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(r.name + ' วันที่ ' + x.d) + '">' : '<span class="sgv">' + esc(v) + '</span>') + '</td>';
+          var show = vis(r, x.d), v = show ? (r.cells[x.d] || '') : '', pend = show && r.pend && r.pend[x.d], st = r.st && r.st[x.d], rc = v ? recCls(st, r.status) : '', ln = r.ln && r.ln[x.d];
+          h += '<td class="' + dk(x.color) + (pend ? ' sg-pend' : '') + (rc ? ' ' + rc : '') + '"' + (v ? ' title="' + esc(recTitle(st, r.status) + lnTip(ln)) + '"' : '') + '>' + (r.editable && show ? '<input class="sgc" data-r="' + i + '" data-d="' + x.d + '" value="' + esc(v) + '" autocomplete="off" spellcheck="false" aria-label="' + esc(r.name + ' วันที่ ' + x.d) + '">' : '<span class="sgv">' + esc(v) + '</span>') + '</td>';
         });
         h += '<td class="sg-tot" id="sgt_' + i + '">' + rowTotal(r) + '</td></tr>';
       });
-      h += '<tr class="sg-sum" data-g="' + g + '"><td class="sg-code"></td><td class="sg-name">รวมคนขึ้นเวรรายวัน</td><td class="sg-hp"></td>' + dates.map(function(x){ return '<td class="' + dk(x.color) + '" data-sd="' + x.d + '"></td>'; }).join('') + '<td class="sg-tot" data-st="1"></td></tr>';
+      if (!shown) h += '<tr><td colspan="' + (dates.length + 4) + '" class="small-muted text-center">ใบที่เลือกยังไม่มีเวร</td></tr>';
+      h += '<tr class="sg-sum" data-g="' + g + '"><td class="sg-code"></td><td class="sg-name">รวมคนขึ้นเวรรายวัน' + (lnSelOf(r0.pid).length ? ' (ใบที่เลือก)' : '') + '</td><td class="sg-hp"></td>' + dates.map(function(x){ return '<td class="' + dk(x.color) + '" data-sd="' + x.d + '"></td>'; }).join('') + '<td class="sg-tot" data-st="1"></td></tr>';
     });
     if (!cfg.rows.length) h += '<tr><td colspan="' + (dates.length + 4) + '">' + empty('calendar-x', 'ยังไม่มีผู้ลงเวร') + '</td></tr>';
     h += '</tbody></table></div>';
@@ -633,7 +664,7 @@ function SheetGrid(cfg){
     Object.keys(G._byG || {}).forEach(function(g){
       var tr = host.querySelector('tr.sg-sum[data-g="' + g + '"]'); if (!tr) return;
       var tot = 0;
-      dates.forEach(function(x){ var n = 0; G._byG[g].forEach(function(i){ var v = cfg.rows[i].cells[x.d]; if (v && !parseCell(v).error && String(v).trim()) n++; }); tot += n; var td = tr.querySelector('[data-sd="' + x.d + '"]'); if (td) td.textContent = n || ''; });
+      dates.forEach(function(x){ var n = 0; G._byG[g].forEach(function(i){ var r = cfg.rows[i], v = r.cells[x.d]; if (v && vis(r, x.d) && !parseCell(v).error && String(v).trim()) n++; }); tot += n; var td = tr.querySelector('[data-sd="' + x.d + '"]'); if (td) td.textContent = n || ''; });
       var tt = tr.querySelector('[data-st]'); if (tt) tt.textContent = tot;
     });
   }

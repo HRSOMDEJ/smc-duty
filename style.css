@@ -816,3 +816,18 @@ tr.cal-row.dk-WEEKEND td,tr.sheet-empty.dk-WEEKEND td{background:var(--d-weekend
 .pp-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:2px 12px;padding-left:22px}
 .pp-i{display:flex;gap:6px;align-items:center;cursor:pointer;font-size:14px;padding:2px 0}
 .pp-btn{text-align:left;white-space:normal;min-height:38px}
+/* 2 ต.ค. 69 (ชุด 21) ตัวเลือกตำแหน่งร่วมทุกหน้า · ใบเซ็นชื่อ · ลงเวรหลายช่อง · OT ตามตารางเวร · ตรวจสุขภาพข้อมูล */
+.pick-box{min-width:240px;max-width:460px;flex:1 1 260px}
+.sg-lines{display:inline-flex;align-items:center;gap:4px;margin:0 10px 0 4px;flex-wrap:wrap;vertical-align:middle}
+.lchip{border:1px solid var(--line,#d9dcea);background:#fff;color:#4a5070;border-radius:999px;padding:1px 10px;font-size:11.5px;line-height:1.6;cursor:pointer}
+.lchip:hover{border-color:var(--brand)}
+.lchip.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.sg-tlg{text-align:left!important}
+.ln-n{display:inline-block;min-width:15px;padding:0 3px;margin-right:3px;border-radius:6px;background:rgba(0,0,0,.08);font-size:10px;font-weight:700;text-align:center;line-height:15px}
+.add-slot.picked{color:#fff;background:var(--brand);border-radius:8px;padding:1px 8px}
+.flag.xo-flag{display:block;background:#fff6e6;border:1px solid #f3c77a;color:#7a4b00;border-radius:8px;padding:3px 8px;margin-top:4px;white-space:normal}
+.xo-line{border:1px solid var(--line,#e5e2ea);border-radius:12px;padding:8px 10px;margin-bottom:8px}
+.xo-line.ok{background:#f0fbf4;border-color:#b9e6c9}
+.hl-row{border:1px solid var(--line,#e5e2ea);border-radius:12px;padding:8px 10px;margin-bottom:8px}
+.us-g{border-bottom:1px dashed #eee;padding:3px 0}
+.us-g:last-child{border-bottom:0}

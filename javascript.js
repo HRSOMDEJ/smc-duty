@@ -1,4 +1,4 @@
-var SMC_VERSION = '1.2569', SMC_BUILD = '2569-10-01.1', SMC_BUILD_TH = '1 ต.ค. 2569';
+var SMC_VERSION = '1.2569', SMC_BUILD = '2569-10-02.1', SMC_BUILD_TH = '2 ต.ค. 2569';
 /* BRAND (ชื่อระบบ โลโก้ สี ประกาศ): อ่านค่าที่แคชไว้ในเครื่องก่อน แล้วขอค่าล่าสุดจาก backend ตอนเริ่มแอป (ดู init ใน help.js) */
 var BRAND = (function(){ try { return JSON.parse(localStorage.getItem('smc_brand') || 'null'); } catch (e) { return null; } })();
 /* ================= แกนหลัก ================= */
@@ -22,6 +22,29 @@ function lastDay(ym){ var p = ym.split('-'); return ym + '-' + new Date(Date.UTC
 function has(role){ var r = S.boot.me.roles; return r.indexOf('ADMIN') >= 0 || r.indexOf(role) >= 0; }
 function posOf(id){ return S.boot.positions.filter(function(x){ return x.id === id; })[0] || null; }
 function posName(id){ var p = posOf(id); return p ? p.name : id; }
+/* ===== 2 ต.ค. 69 (ชุด 21) ตำแหน่งที่เลือก ใช้ร่วมกันทุกหน้าและทุกปุ่มพิมพ์ (จำไว้ในเครื่อง แยกตามผู้ใช้) =====
+ * เก็บเป็นรายการรหัสตำแหน่ง · [] = ทุกตำแหน่ง · แต่ละหน้าใช้เฉพาะตำแหน่งที่หน้านั้นมีสิทธิ์ (ไม่มีตำแหน่งที่เลือกในหน้านั้น = แสดงทั้งหมด) */
+function pickKey(){ return 'smc_pick:' + ((S.boot && S.boot.me && S.boot.me.empCode) || ''); }
+function pickGet(){ if (!S.pick) { try { S.pick = JSON.parse(store(pickKey()) || '[]') || []; } catch (e) { S.pick = []; } } return S.pick; }
+function pickSet(list){ S.pick = (list || []).slice(); store(pickKey(), JSON.stringify(S.pick)); }
+/** ตำแหน่งที่เลือกไว้ ภายในรายการ ids ของหน้านั้น → [] = ทั้งหมด */
+function pickIn(ids){ var p = pickGet().filter(function(id){ return ids.indexOf(id) >= 0; }); return p.length >= ids.length ? [] : p; }
+/** ตำแหน่งที่ใช้จริงในหน้านั้น (ทั้งหมด หรือที่เลือก) */
+function pickUse(ids){ var p = pickIn(ids); return p.length ? p : ids.slice(); }
+function pickLabel(ids){ return '<i class="bi bi-ui-checks me-1"></i> ' + esc(posPickSummary(ids, pickIn(ids))); }
+function pickBtn(id, ids, label){ return '<div class="pick-box"><label class="form-label">' + (label || 'ตำแหน่ง') + ' <span class="small-muted fw-normal">(ใช้ร่วมทุกหน้า)</span></label><button type="button" class="form-select pp-btn" id="' + id + '">' + pickLabel(ids) + '</button></div>'; }
+function pickBind(id, ids, onChange){
+  var b = $(id); if (!b) return;
+  b.onclick = function(){
+    posPickModal('เลือกตำแหน่งที่แสดง (ใช้ร่วมกันทุกหน้าและทุกปุ่มพิมพ์)', ids, pickIn(ids), 'ใช้ตำแหน่งที่เลือก', function(list){ pickSet(list); b.innerHTML = pickLabel(ids); onChange(list); });
+  };
+}
+/** ก่อนพิมพ์: เลือกตำแหน่ง/กลุ่มที่จะพิมพ์ (ติ๊กตามที่เลือกไว้ในหน้าให้ก่อน) → cb(รายการที่เลือก, ทั้งหมดหรือไม่) */
+function printPick(title, ids, cur, cb){
+  if (!ids.length) return notify('ไม่มีตำแหน่งที่พิมพ์ได้', 'info');
+  if (ids.length === 1) return cb(ids.slice(), true);
+  posPickModal(title, ids, cur && cur.length ? cur : pickIn(ids), '<i class="bi bi-printer"></i> พิมพ์', function(list){ cb(list.length ? list : ids.slice(), !list.length); });
+}
 function normT(v){ v = String(v || '').trim().replace('.', ':'); if (/^\d{3,4}$/.test(v)) v = (v.length === 3 ? '0' : '') + v.slice(0, -2) + ':' + v.slice(-2); var m = v.match(/^(\d{1,2}):(\d{2})$/); if (!m || +m[1] > 23 || +m[2] > 59) return ''; return (m[1].length < 2 ? '0' : '') + m[1] + ':' + m[2]; }
 function tMin(t){ var n = normT(t); if (!n) return null; var p = n.split(':'); return +p[0] * 60 + +p[1]; }
 function mTime(m){ return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
@@ -182,7 +205,7 @@ function viaGas(){ return !!(window.google && google.script && google.script.run
  * - อ่านข้อมูล: ถ้าเครือข่ายสะดุด/เซิร์ฟเวอร์ Google ไม่ว่าง ลองใหม่อัตโนมัติสูงสุด 3 ครั้ง (รอ 0.7 / 1.6 / 3.2 วินาที)
  * - บันทึกข้อมูล: ไม่ลองซ้ำอัตโนมัติ (กันบันทึกซ้ำ) แต่แจ้งให้ตรวจสอบก่อนกดใหม่
  */
-var NET = { active: 0, queue: [], bgq: [], bgActive: 0, MAX: 4 };
+var NET = { active: 0, queue: [], bgq: [], bgActive: 0, MAX: 3 };   // 2 ต.ค. 69 จาก 4 → 3: ผู้ใช้หลายคนพร้อมกันไม่ให้งานค้างที่ Google เกินโควตา (คำขอพร้อมกันรวมทั้งระบบ)
 /* 1 ต.ค. 69 คิวมี 2 ระดับ: งานที่ผู้ใช้กดได้ช่องก่อนเสมอ · งานเบื้องหลัง (โหลดล่วงหน้า/ถามเลขรุ่น) ทำได้ทีละ 1 และเฉพาะตอนไม่มีงานของผู้ใช้ค้าง */
 function netSlot(bg){
   return new Promise(function(res){
@@ -217,13 +240,20 @@ function rawCall(action, payload, timeoutMs, bg){
   if (viaGas()) return new Promise(function(resolve, reject){ google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).rpc(action, S.token, payload || {}); });
   if (!API_URL) return Promise.reject(new Error('ยังไม่ได้ตั้งค่าลิงก์ระบบ (config.js)'));
   var read = isReadAction(action), waits = bg ? [2000] : [700, 1600, 3200], tries = 0;
+  // 2 ต.ค. 69 คำสั่งบันทึกที่มีเลขคำขอ (_rid) ส่งซ้ำได้อย่างปลอดภัย (เซิร์ฟเวอร์ไม่บันทึกซ้ำ) → ลองใหม่อัตโนมัติเมื่อ Google ไม่ว่าง/คิวเต็ม
+  var safeRetry = !read && payload && payload._rid;
+  if (safeRetry) waits = [1500, 3500, 7000];
   var slow = bg ? null : setTimeout(function(){ slowHint(true); }, 3500);
   var attempt = function(){
     return netSlot(bg).then(function(){ return fetchOnce(action, payload, timeoutMs); })
-      .then(function(x){ netDone(bg); return x; }, function(e){
+      .then(function(x){
         netDone(bg);
-        if (read && e.net !== 'timeout' && tries < waits.length) { var w = waits[tries++] + Math.random() * 300; return new Promise(function(r){ setTimeout(r, w); }).then(attempt); }
-        if (read && tries) e.message += ' · ระบบลองเชื่อมต่อใหม่ให้แล้ว ' + tries + ' ครั้ง';
+        if (safeRetry && x && x.ok === false && /ระบบกำลังบันทึกข้อมูลของผู้ใช้อื่น/.test(x.error || '') && tries < waits.length) { var w0 = waits[tries++] + Math.random() * 500; return new Promise(function(r){ setTimeout(r, w0); }).then(attempt); }
+        return x;
+      }, function(e){
+        netDone(bg);
+        if ((read || safeRetry) && e.net !== 'timeout' && tries < waits.length) { var w = waits[tries++] + Math.random() * 300; return new Promise(function(r){ setTimeout(r, w); }).then(attempt); }
+        if ((read || safeRetry) && tries) e.message += ' · ระบบลองเชื่อมต่อใหม่ให้แล้ว ' + tries + ' ครั้ง';
         if (!read && e.net === 'offline') e.message += '\nรายการนี้อาจบันทึกสำเร็จแล้ว กรุณากดรีเฟรชหน้าเพื่อตรวจสอบก่อนบันทึกซ้ำ';
         throw e;
       });
@@ -344,6 +374,24 @@ function dvPoll(){
   verCheck(null, true);
 }
 setInterval(dvPoll, 90000);
+/* 2 ต.ค. 69 (ชุด 21) หน้าที่หลายคนใช้พร้อมกัน (ลงตารางเวรตอนเปิดให้จอง): ถามเลขรุ่นของหน้านั้นทุก ms วินาที (เบามาก)
+ * เปลี่ยนเมื่อไร → โหลดเฉพาะหน้านั้นใหม่ ผู้ใช้เห็นช่องที่คนอื่นเพิ่งลงโดยไม่ต้องกดรีเฟรช */
+var LIVE = { t: null };
+function livePoll(page, ms, keyFn, reload){
+  clearInterval(LIVE.t);
+  LIVE.t = setInterval(function(){
+    if (S.page !== page || !S.token) { clearInterval(LIVE.t); return; }
+    if (document.hidden || viaGas() || !API_URL || NET.active > 1 || SAVEN > 0) return;
+    var mk = keyFn(); var ce = mk && (MEMO[mk] || pcGetE(mk)); if (!ce || !ce.dep) return;
+    verCheck(Object.keys(ce.dep), true).then(function(){ if (S.page === page && keyFn() === mk && cacheState(ce) === 'stale') reload(); });
+  }, ms);
+}
+/** ข้อมูลหน้าที่ได้มาพร้อมผลการบันทึก (สร้างหลังบันทึก) → จำเป็นข้อมูลล่าสุดของส่วนเดิม ไม่ต้องโหลดซ้ำ */
+function memoFresh(mk, data){
+  var ce = MEMO[mk] || pcGetE(mk), dep = null;
+  if (ce && ce.dep) { dep = {}; Object.keys(ce.dep).forEach(function(k){ dep[k] = VERS[k] || ce.dep[k]; }); }
+  if (dep) cachePut(mk, data, DV.v, dep);
+}
 document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(dvPoll, 400); });
 /** 1 ต.ค. 69 หลังเข้าระบบ: หน้าที่ผู้ใช้เปิดบ่อย (ที่ข้อมูลเก่าแล้ว) โหลดมาพร้อมกันใน "คำขอเดียว" (เดิมทีละหน้า 4 รอบ)
  * ทำเป็นงานเบื้องหลัง ไม่แย่งช่องของหน้าที่ผู้ใช้กำลังเปิด · หลังจากนั้นกดเมนูแล้วขึ้นทันที */
@@ -395,6 +443,7 @@ function apiView(action, payload, draw, extra){
 }
 function api(action, payload, opt){
   opt = opt || {};
+  if (opt.rid) { payload = Object.assign({}, payload || {}); payload._rid = (S.boot && S.boot.me ? S.boot.me.empCode : '') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9); }
   var mk = opt.fresh ? memoKey(action, payload) : null, shown = null;
   if (opt.fresh && opt.onCache) {
     var ce = MEMO[mk] || pcGetE(mk);
@@ -489,15 +538,18 @@ function resultBox(title, results){
     confirmButtonText: 'รับทราบ' });
 }
 
-var MDL = null;
+var MDL = null, MDLSEQ = 0;
+/** 2 ต.ค. 69 ปิดหน้าต่างให้แน่นอน: กดปุ่มระหว่างหน้าต่างกำลังเปิด (อะนิเมชันยังไม่จบ) Bootstrap จะไม่ปิดให้ → ลองปิดซ้ำ */
+function mdlHide(){ var seq = MDLSEQ; if (!MDL) return; MDL.hide(); setTimeout(function(){ if (seq === MDLSEQ && $('mdl').classList.contains('show')) MDL.hide(); }, 450); }
 function modal(title, body, buttons, size){
+  MDLSEQ++;
   $('mdlTitle').textContent = title;
   $('mdlBody').innerHTML = body;
   $('mdlDlg').className = 'modal-dialog modal-dialog-centered modal-dialog-scrollable' + (size ? ' modal-' + size : '');
   var f = $('mdlFoot'); f.innerHTML = '';
   (buttons || [{ text: 'ปิด', cls: 'btn-ghost' }]).forEach(function(b){
     var el = document.createElement('button'); el.type = 'button'; el.className = 'btn ' + (b.cls || 'btn-brand'); el.innerHTML = b.text;
-    el.onclick = function(){ if (b.onClick) { var r = b.onClick(el); if (r === false) return; } MDL.hide(); };
+    el.onclick = function(){ if (b.onClick) { var r = b.onClick(el); if (r === false) return; } mdlHide(); };
     f.appendChild(el);
   });
   MDL = MDL || new bootstrap.Modal($('mdl'));
@@ -627,7 +679,7 @@ $('fPhone').addEventListener('submit', function(e){
   api('updatePhone', { phone: $('phNew').value }, { btn: e.submitter }).then(function(me){ S.boot.me = me; notify('บันทึกหมายเลขโทรศัพท์เรียบร้อย'); showApp(); }).catch(function(){});
 });
 
-function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); pcClear(); prefetchDone = false; store('smc_token', null); store('smc_boot', null); S.token = null; S.boot = null; showLogin(); }
+function doLogout(){ api('logout', {}, { quiet: true }).catch(function(){}); memoClear(); pcClear(); prefetchDone = false; store('smc_token', null); store('smc_boot', null); S.token = null; S.boot = null; S.pick = null; S.lnSel = {}; clearInterval(LIVE.t); showLogin(); }
 
 function openAccount(){
   var me = S.boot.me;
@@ -668,7 +720,7 @@ var MENU = [
 ];
 
 /* 1 ต.ค. 69 จำหน้า/ตำแหน่ง/เดือน/มุมมองที่เปิดอยู่ รีเฟรชแล้วกลับที่เดิม (ไม่เด้งไปภาพรวมทุกตำแหน่ง ซึ่งโหลดนานกว่า) */
-var STICKY = ['ym', 'pid', 'enPid', 'enView', 'ovPid', 'bkPid', 'bkYm', 'fuPid', 'enSheetPid', 'enSheetNo', 'enFilter', 'rvSt', 'exPids'];
+var STICKY = ['ym', 'pid', 'enPid', 'enView', 'ovPid', 'bkPid', 'bkYm', 'fuPid', 'enSheetPid', 'enSheetNo', 'enFilter', 'rvSt'];
 function saveState(){
   if (!S.boot || !S.boot.me) return;
   var o = { u: S.boot.me.empCode, t: Date.now(), s: {} };
@@ -738,7 +790,8 @@ function empOptions(list, pid, opt){
     if (mine) ok.push(e); else if (!a || !a.length) more.push(e);
   });
   if (!any) { ok = ok.concat(more); more = []; }
-  var one = function(e, m){ var sub = opt.sub ? opt.sub(e) : e.empCode; return '<option value="' + e.empCode + '" data-sub="' + esc(sub) + '"' + (m ? ' data-more="1"' : '') + (e.empCode === opt.cur ? ' selected' : '') + '>' + esc(opt.text ? opt.text(e) : e.name) + '</option>'; };
+  // 2 ต.ค. 69 คนพ้นสภาพ (ไม่เกิน 3 เดือน) เลือกได้ มีป้าย "พ้นสภาพ" ให้เห็นชัด
+  var one = function(e, m){ var sub = (opt.sub ? opt.sub(e) : e.empCode) + (e.x ? ' · ' + (e.stop || 'พ้นสภาพแล้ว') : ''); return '<option value="' + e.empCode + '" data-sub="' + esc(sub) + '"' + (m ? ' data-more="1"' : '') + (e.empCode === opt.cur ? ' selected' : '') + '>' + esc((opt.text ? opt.text(e) : e.name) + (e.x ? ' (พ้นสภาพ)' : '')) + '</option>'; };
   return ok.map(function(e){ return one(e, false); }).join('') + more.map(function(e){ return one(e, true); }).join('');
 }
 function go(page){
@@ -849,7 +902,7 @@ var RULES = {
     var l = function(v, d){ var a = String(v || '').split(',').map(function(x){ return tMin(x.trim()); }).filter(function(m){ return m !== null; }); return a.length ? a : d; };
     return { 'ช1': l(pos.morningStart, [480]), 'ช2': l(pos.afternoonStart, [720]), 'บ1': l(pos.eveningStart, [960]) };
   },
-  compute: function(tin, tout, dayType, pos, rules){
+  compute: function(tin, tout, dayType, pos, rules, allowed){
     var D = S.boot.dayTypes, I = tMin(tin), O = tMin(tout);
     if (I === null || O === null) return { err: 'กรอกเวลาเข้า–ออก' };
     if (O <= I) return { err: 'เวลาออกต้องหลังเวลาเข้า' };
@@ -862,9 +915,15 @@ var RULES = {
       var c = RULES.slotAt(cur); if (codes.indexOf(c) >= 0) break; if (dayType === D.WORKDAY && c !== 'บ1') break; codes.push(c); cur += L;
     }
     if (!codes.length) return { err: 'ไม่ครบ 1 เวร (' + (O - I) + ' นาที)' };
-    var ot = RULES.roundOt(Math.max(0, O - cur)), cap = false;
+    var odd = (st[codes[0]] || []).indexOf(I) < 0, extra = Math.max(0, O - cur), dropped = [];
+    // 2 ต.ค. 69 ตารางเวรเป็นตัวตั้ง (ตรงกับ computeShift_ ใน Rules.gs): ช่วงเวรที่ไม่ได้ลงไว้ → คิดเป็น OT
+    if (allowed && allowed.length) {
+      var kept = codes.filter(function(x){ return allowed.indexOf(x) >= 0; });
+      if (kept.length && kept.length < codes.length) { dropped = codes.filter(function(x){ return allowed.indexOf(x) < 0; }); extra += dropped.length * L; codes = kept; }
+    }
+    var ot = RULES.roundOt(extra), cap = false;
     if (ot > (+rules.otMax || 4)) { ot = +rules.otMax || 4; cap = true; }
     var noOt = pos.allowOt === false && ot > 0; if (noOt) { ot = 0; cap = false; }
-    return { codes: codes, ot: ot, cap: cap, noOt: noOt, odd: (st[codes[0]] || []).indexOf(I) < 0 };
+    return { codes: codes, ot: ot, cap: cap, noOt: noOt, odd: odd, dropped: dropped };
   }
 };
