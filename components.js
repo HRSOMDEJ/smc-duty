@@ -341,27 +341,37 @@ function uiIdle(){
     })();
   });
 }
-/** 5 ต.ค. 69 ตัวเลขในช่องวันที่ / แถว "รวมประจำวัน" ยาวเกินช่อง (เช่น 11.5, 26.5) เดิมถูกตัดขอบหรือชิดเส้นจนอ่านไม่ได้
- *  → ย่อเฉพาะตัวอักษรในช่องนั้นให้พอดีช่อง เว้นขอบซ้าย-ขวา · ไม่เปลี่ยนความกว้างคอลัมน์ ไม่เปลี่ยนค่าในช่อง
- *  ค่าที่ยาวเท่ากันใช้ขนาดเดียวกัน (แยกช่องวันที่ กับแถวรวมประจำวัน) ค่าที่พอดีช่องอยู่แล้วคงขนาดเดิม · ไม่ใช้กับตารางเวรแจก (.drs) ที่ตัดบรรทัดในช่องได้ */
+/** 5 ต.ค. 69 (ครั้งที่ 2) ตัวเลข/ตัวย่อในช่องวันที่ใช้ "ขนาดมาตรฐานเดียวกันทั้งตาราง" คงที่ทุกหน้า ทุกเดือน
+ *  ขนาดมาตรฐาน = ขนาดที่ข้อความอ้างอิง (data-fit ของตาราง เช่น 88.8 = เลขแบบ 11.5 · 8.8 = เลขแบบ 0.5 · ชบ = 2 เวร) พอดีช่อง เว้นขอบซ้าย-ขวา
+ *  · ช่องวันที่ที่ยาวเกินมาตรฐาน → ย่อเฉพาะช่องนั้น (ไม่ตัดทิ้ง)
+ *  · แถว "รวมประจำวัน" ขนาดเท่ากันทั้งแถว ปกติเท่ากับช่องวันที่ · ถ้ามียอดรวมยาวเกินช่อง ย่อทั้งแถวของหน้านั้น
+ *  ไม่เปลี่ยนความกว้างคอลัมน์ ไม่เปลี่ยนค่าในช่อง · ไม่ใช้กับตารางเวรแจก (.drs) ที่ตัดบรรทัดในช่องได้ */
 function fitDayCells(root){
   var rg = document.createRange(), PAD = 4, MIN = 0.5;
+  var tw = function(td){ rg.selectNodeContents(td); return rg.getBoundingClientRect().width; };
+  var px = function(td){ return parseFloat(getComputedStyle(td).fontSize) || 12; };
+  var set = function(td, v){ td.style.fontSize = v.toFixed(2) + 'px'; };
   $$('.dt-t', root).forEach(function(tb){
     if (tb.closest && tb.closest('.drs')) return;
-    [$$('td.d', tb), $$('tr.sum td.sd', tb)].forEach(function(g){
-      var cells = g.filter(function(td){ return td.textContent !== ''; }), need = {};
-      var key = function(td){ return td.textContent.length; };
-      cells.forEach(function(td){
-        td.style.whiteSpace = 'nowrap';
-        rg.selectNodeContents(td);
-        var tw = rg.getBoundingClientRect().width, av = td.clientWidth - PAD, k = key(td);
-        if (tw > av && av > 0) need[k] = Math.min(need[k] || 1, av / tw);
-      });
-      cells.forEach(function(td){
-        var r = need[key(td)]; if (!r) return;
-        td.style.fontSize = (parseFloat(getComputedStyle(td).fontSize) * Math.max(MIN, r)).toFixed(2) + 'px';
-      });
+    var days = $$('td.d', tb), sums = $$('tr.sum td.sd', tb), ref = tb.getAttribute('data-fit') || '';
+    if (!days.length) return;
+    days.concat(sums).forEach(function(td){ td.style.whiteSpace = 'nowrap'; });
+    if (ref) {   // 1) ขนาดมาตรฐานจากข้อความอ้างอิง
+      var c = days[0], keep = c.textContent, std = px(c);
+      c.textContent = ref;
+      var w0 = tw(c), a0 = c.clientWidth - PAD;
+      c.textContent = keep;
+      if (w0 > a0 && a0 > 0) std = std * Math.max(MIN, a0 / w0);
+      days.concat(sums).forEach(function(td){ set(td, std); });
+    }
+    days.forEach(function(td){   // 2) ช่องวันที่ที่ยาวเกินมาตรฐาน → ย่อเฉพาะช่องนั้น
+      if (td.textContent === '') return;
+      var w = tw(td), a = td.clientWidth - PAD;
+      if (w > a && a > 0) set(td, px(td) * Math.max(MIN, a / w));
     });
+    var r = 1;   // 3) แถวรวมประจำวัน: ขนาดเดียวกันทั้งแถว
+    sums.forEach(function(td){ if (td.textContent === '') return; var w = tw(td), a = td.clientWidth - PAD; if (w > a && a > 0) r = Math.min(r, a / w); });
+    if (r < 1) sums.forEach(function(td){ set(td, px(td) * Math.max(MIN, r)); });
   });
 }
 /** o: {orient:'landscape'|'portrait', pages:[html], title} */
@@ -371,7 +381,7 @@ function printDoc(o){
     root.className = 'docs ' + o.orient + ' measuring';
     $('printPage').textContent = '@page{size:A4 ' + o.orient + ';margin:8mm}';
     root.innerHTML = o.pages.map(function(h){ return '<section class="dp' + (o.flow ? ' flow' : '') + '"><div class="dp-in">' + h + '</div></section>'; }).join('');
-    fitDayCells(root);   // 5 ต.ค. 69: ตัวเลขยาวเกินช่องวันที่ → ย่อให้พอดี (ไม่ตัดทิ้ง)
+    fitDayCells(root);   // 5 ต.ค. 69: ตัวเลขในช่องวันที่ขนาดมาตรฐานเดียวกันทั้งตาราง พอดีช่อง (ไม่ตัดทิ้ง)
     $$('.dp', root).forEach(function(sec){
       // ย่อให้พอดีหน้า (flow = พอดีความกว้าง ยาวต่อหลายหน้าได้) · ใช้ zoom (ไม่ใช้ transform) เพื่อให้เครื่องพิมพ์ตัดหน้าตามขนาดที่ย่อแล้วจริง
       var inn = sec.firstChild, W = sec.clientWidth, H = o.flow ? 1e9 : sec.clientHeight, w = inn.scrollWidth, h = inn.scrollHeight;
@@ -411,7 +421,7 @@ function docTableHtml(m, foot, page, pages){
   var bg = function(x){ return x.bg ? ' style="background:' + x.bg + '"' : ''; };
   var h = '<div class="dt' + (ot ? ' ot' : '') + '" style="width:' + totalW + 'px">' +
     '<div class="dt-h1">' + esc(m.head) + '</div><div class="dt-h2">' + esc(m.posLine) + '</div><div class="dt-h3">' + esc(m.code) + '</div>' + (m.mark ? '<div class="dt-mark">' + esc(m.mark) + '</div>' : '<div class="dt-gap"></div>') +
-    '<table class="dt-t"><colgroup>' + cols + '</colgroup><thead><tr><th rowspan="2">ลำดับ</th><th rowspan="2">รหัส<br>เจ้าหน้าที่</th><th rowspan="2">ชื่อ - นามสกุล</th><th rowspan="2">ตำแหน่ง</th>' + (m.withUnit ? '<th rowspan="2">จุด<br>ปฏิบัติงาน</th>' : '') +
+    '<table class="dt-t" data-fit="' + (ot ? '8.8' : 'ชบ') + '"><colgroup>' + cols + '</colgroup><thead><tr><th rowspan="2">ลำดับ</th><th rowspan="2">รหัส<br>เจ้าหน้าที่</th><th rowspan="2">ชื่อ - นามสกุล</th><th rowspan="2">ตำแหน่ง</th>' + (m.withUnit ? '<th rowspan="2">จุด<br>ปฏิบัติงาน</th>' : '') +
     m.dates.map(function(x){ return '<th class="dn"' + bg(x) + '>' + x.d + '</th>'; }).join('') + '<th rowspan="2">' + (ot ? 'รวม<br>OT' : 'รวม') + '</th>' + (m.pay ? '<th rowspan="2">' + (ot ? 'รายได้ OT<br>(บาท)' : 'รายได้<br>(บาท)') + '</th>' : '') + '</tr><tr>' +
     m.dates.map(function(x){ return '<th class="dw"' + bg(x) + '>' + esc(x.dow) + '</th>'; }).join('') + '</tr></thead><tbody>';
   m.rows.forEach(function(r){
