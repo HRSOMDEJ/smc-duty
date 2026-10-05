@@ -341,6 +341,29 @@ function uiIdle(){
     })();
   });
 }
+/** 5 ต.ค. 69 ตัวเลขในช่องวันที่ / แถว "รวมประจำวัน" ยาวเกินช่อง (เช่น 11.5, 26.5) เดิมถูกตัดขอบหรือชิดเส้นจนอ่านไม่ได้
+ *  → ย่อเฉพาะตัวอักษรในช่องนั้นให้พอดีช่อง เว้นขอบซ้าย-ขวา · ไม่เปลี่ยนความกว้างคอลัมน์ ไม่เปลี่ยนค่าในช่อง
+ *  ค่าที่ยาวเท่ากันใช้ขนาดเดียวกัน (แยกช่องวันที่ กับแถวรวมประจำวัน) ค่าที่พอดีช่องอยู่แล้วคงขนาดเดิม · ไม่ใช้กับตารางเวรแจก (.drs) ที่ตัดบรรทัดในช่องได้ */
+function fitDayCells(root){
+  var rg = document.createRange(), PAD = 4, MIN = 0.5;
+  $$('.dt-t', root).forEach(function(tb){
+    if (tb.closest && tb.closest('.drs')) return;
+    [$$('td.d', tb), $$('tr.sum td.sd', tb)].forEach(function(g){
+      var cells = g.filter(function(td){ return td.textContent !== ''; }), need = {};
+      var key = function(td){ return td.textContent.length; };
+      cells.forEach(function(td){
+        td.style.whiteSpace = 'nowrap';
+        rg.selectNodeContents(td);
+        var tw = rg.getBoundingClientRect().width, av = td.clientWidth - PAD, k = key(td);
+        if (tw > av && av > 0) need[k] = Math.min(need[k] || 1, av / tw);
+      });
+      cells.forEach(function(td){
+        var r = need[key(td)]; if (!r) return;
+        td.style.fontSize = (parseFloat(getComputedStyle(td).fontSize) * Math.max(MIN, r)).toFixed(2) + 'px';
+      });
+    });
+  });
+}
 /** o: {orient:'landscape'|'portrait', pages:[html], title} */
 function printDoc(o){
   return Promise.all([ensureDocFont(), uiIdle()]).then(function(){
@@ -348,6 +371,7 @@ function printDoc(o){
     root.className = 'docs ' + o.orient + ' measuring';
     $('printPage').textContent = '@page{size:A4 ' + o.orient + ';margin:8mm}';
     root.innerHTML = o.pages.map(function(h){ return '<section class="dp' + (o.flow ? ' flow' : '') + '"><div class="dp-in">' + h + '</div></section>'; }).join('');
+    fitDayCells(root);   // 5 ต.ค. 69: ตัวเลขยาวเกินช่องวันที่ → ย่อให้พอดี (ไม่ตัดทิ้ง)
     $$('.dp', root).forEach(function(sec){
       // ย่อให้พอดีหน้า (flow = พอดีความกว้าง ยาวต่อหลายหน้าได้) · ใช้ zoom (ไม่ใช้ transform) เพื่อให้เครื่องพิมพ์ตัดหน้าตามขนาดที่ย่อแล้วจริง
       var inn = sec.firstChild, W = sec.clientWidth, H = o.flow ? 1e9 : sec.clientHeight, w = inn.scrollWidth, h = inn.scrollHeight;
@@ -395,7 +419,7 @@ function docTableHtml(m, foot, page, pages){
       r.days.map(function(v, i){ return '<td class="d"' + bg(m.dates[i]) + '>' + (v === '' ? '' : esc(ot ? docNum(v) : v)) + '</td>'; }).join('') +
       '<td class="t">' + docNum(r.total) + '</td>' + (m.pay ? '<td class="a">' + docNum(r.amt, 2) + '</td>' : '') + '</tr>';
   });
-  h += '<tr class="sum"><td colspan="' + (m.withUnit ? 5 : 4) + '" class="c">รวมประจำวัน</td>' + m.daily.map(function(v){ return '<td class="c">' + (v ? docNum(v) : '') + '</td>'; }).join('') +
+  h += '<tr class="sum"><td colspan="' + (m.withUnit ? 5 : 4) + '" class="c">รวมประจำวัน</td>' + m.daily.map(function(v){ return '<td class="c sd">' + (v ? docNum(v) : '') + '</td>'; }).join('') +
     '<td class="t">' + docNum(m.sumTotal) + '</td>' + (m.pay ? '<td class="a">' + docNum(m.sumAmt, 2) + '</td>' : '') + '</tr></tbody></table>' +
     '<div class="dt-leg">' + esc(m.legend) + '</div>' + docSignHtml(m.sign.left, m.sign.right) +
     '<div class="dt-foot"><i>' + esc(foot) + '</i><span>หน้า ' + page + ' / ' + pages + '</span></div></div>';

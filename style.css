@@ -690,6 +690,7 @@ tr.cal-row.dk-WEEKEND td,tr.sheet-empty.dk-WEEKEND td{background:var(--d-weekend
 .dt-t td.t{text-align:center;font-weight:600}
 .dt-t td.a{text-align:right;font-weight:600;padding-right:5px}
 .dt-t tr.sum td{background:#f3f3f3;font-weight:600;height:22px;font-size:9.5pt;border-top:1.5px solid #000}
+.dt-t tr.sum td.sd{padding-left:0;padding-right:0}   /* 5 ต.ค. 69 ช่องรวมประจำวัน ใช้ความกว้างเต็มช่อง (ตัวเลขไม่ถูกตัด) */
 .dt-leg{font-size:8.5pt;color:#333;line-height:1.5;margin-top:3px}
 .ds{display:flex;justify-content:space-around;margin-top:12px}
 .ds-b{width:42%;text-align:center;font-size:10.5pt;line-height:1.45}
